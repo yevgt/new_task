@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Список задач</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .task { border: 1px solid #ddd; margin: 10px 0; padding: 15px; }
+        .task h3 { margin-top: 0; }
+        .subtask { margin-left: 20px; padding: 5px; background: #f9f9f9; }
+        .overdue { color: red; }
+        .done { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Список задач</h1>
+
+    {% for task in tasks %}
+    <div class="task">
+        <h3>{{ task.title }}
+            <span class="{% if task.is_overdue %}overdue{% elif task.status == 'done' %}done{% endif %}">
+                ({{ task.get_status_display }})
+            </span>
+        </h3>
+        <p><strong>Описание:</strong> {{ task.description }}</p>
+        <p><strong>Дедлайн:</strong> {{ task.deadline }}</p>
+        <p><strong>Категории:</strong>
+            {% for category in task.categories.all %}
+                {{ category.name }}{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+        </p>
+
+        {% if task.subtasks.all %}
+        <h4>Подзадачи:</h4>
+        {% for subtask in task.subtasks.all %}
+        <div class="subtask">
+            <strong>{{ subtask.title }}</strong>
+            <span class="{% if subtask.is_overdue %}overdue{% elif subtask.status == 'done' %}done{% endif %}">
+                ({{ subtask.get_status_display }})
+            </span>
+            <br>
+            {{ subtask.description }}
+            <br>
+            <small>Дедлайн: {{ subtask.deadline }}</small>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+    {% empty %}
+    <p>Задач пока нет.</p>
+    {% endfor %}
+</body>
+</html>

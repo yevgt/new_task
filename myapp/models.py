@@ -7,9 +7,10 @@ class Category(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="Название категории")
 
     class Meta:
-        verbose_name = "Категория"
-        verbose_name_plural = "Категории"
-        ordering = ['name']
+        db_table = 'task_manager_category'
+        verbose_name = "Category"
+        verbose_name_plural = "Categories"
+        unique_together = [['name']]
 
     def __str__(self):
         return self.name
@@ -88,9 +89,11 @@ class SubTask(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
 
     class Meta:
-        verbose_name = "Подзадача"
-        verbose_name_plural = "Подзадачи"
+        db_table = 'task_manager_subtask'
+        verbose_name = "SubTask"
+        verbose_name_plural = "SubTasks"
         ordering = ['-created_at']
+        unique_together = [['title']]
 
     def __str__(self):
         return f"{self.task.title} -> {self.title} ({self.get_status_display()})"
