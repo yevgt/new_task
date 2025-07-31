@@ -59,6 +59,26 @@ class Task(models.Model):
         """Проверка просрочена ли задача."""
         return self.deadline < timezone.now() and self.status != 'done'
 
+    def get_short_title(self):
+        """Возвращает укороченное название для отображения."""
+        if len(self.title) > 10:
+            return f"{self.title[:10]}..."
+        return self.title
+
+    def get_absolute_url(self):
+        """URL для просмотра задачи."""
+        from django.urls import reverse
+        return reverse('admin:myapp_task_change', args=[self.pk])
+
+    @property
+    def subtasks_count(self):
+        """Количество подзадач."""
+        return self.subtasks.count()
+
+    @property
+    def completed_subtasks_count(self):
+        """Количество выполненных подзадач."""
+        return self.subtasks.filter(status='done').count()
 
 class SubTask(models.Model):
     """Отдельная часть основной задачи (Task)."""
@@ -102,3 +122,9 @@ class SubTask(models.Model):
     def is_overdue(self):
         """Проверка просрочена ли подзадача."""
         return self.deadline < timezone.now() and self.status != 'done'
+
+    def get_short_title(self):
+        """Возвращает укороченное название для отображения."""
+        if len(self.title) > 10:
+            return f"{self.title[:10]}..."
+        return self.title
