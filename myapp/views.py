@@ -4,9 +4,11 @@ from rest_framework import generics, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+import calendar
 from .models import Task, SubTask, Category
 from .serializers import (
     TaskCreateSerializer,
@@ -36,6 +38,12 @@ def tasks_view(request):
     }
     return render(request, 'myapp/tasks.html', context)
 
+# Кастомная пагинация для подзадач (Задание 2)
+class SubTaskPagination(PageNumberPagination):
+    """Кастомная пагинация для подзадач - 5 объектов на страницу."""
+    page_size = 5
+    page_size_query_param = 'page_size'
+    max_page_size = 50
 
 # REST API представления для задач
 
@@ -62,6 +70,139 @@ class TaskCreateAPIView(generics.CreateAPIView):
                 status=status.HTTP_201_CREATED
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# Задание 1: Эндпоинт для получения задач по дню недели
+class TaskListByWeekdayAPIView(generics.ListAPIView):
+    """
+    Эндпоинт для получения списка задач по дню недели.
+
+    GET /api/tasks/by-weekday/
+
+    Параметры запроса:
+    - weekday: день недели (monday, tuesday, wednesday, thursday, friday, saturday, sunday)
+    - weekday_num: день недели числом (1=понедельник, 2=вторник, ..., 7=воскресенье)
+    - status: фильтр по статусу
+    - search: поиск по названию и описанию
+    - ordering: сортировка (по умолчанию -created_at)
+
+    Примеры:
+    - /api/tasks/by-weekday/ - все задачи
+    - /api/tasks/by-weekday/?weekday=tuesday - задачи на вторник
+    - /api/tasks/by-weekday/?weekday_num=2 - задачи на вторник (альтернативный способ)
+    - /api/tasks/by-weekday/?weekday=friday&status=in_progress - задачи на пятницу со статусом "в работе"
+    """
+    serializer_class = TaskListSerializer
+
+    def get_queryset(self):
+        queryset = Task.objects.all().prefetch_related('categories', 'subtasks')
+
+        # Словарь для преобразования названий дней в номера
+        weekday_mapping = {
+            'monday': 1, 'mon': 1,
+            'tuesday': 2, 'tue': 2, 'tues': 2,
+            'wednesday': 3, 'wed': 3,
+            'thursday': 4, 'thu': 4, 'thur': 4, 'thurs': 4,
+            'friday': 5, 'fri': 5,
+            'saturday': 6, 'sat': 6,
+            'sunday': 7, 'sun': 7,
+        }
+
+        # Фильтрация по дню недели (название)
+        weekday = self.request.query_params.get('weekday', '').lower()
+        if weekday and weekday in weekday_mapping:
+            weekday_num = weekday_mapping[weekday]
+            queryset = queryset.extra(
+                where=["EXTRACT(dow FROM deadline) = %s"],
+                params=[weekday_num % 7]  # PostgreSQL использует 0=воскресенье, 6=суббота
+            )
+
+        # Фильтрация по дню недели (число)
+        weekday_num = self.request.query_params.get('weekday_num')
+        if weekday_num:
+            try:
+                weekday_num = int(weekday_num)
+                if 1 <= weekday_num <= 7:
+                    # Преобразуем: 1=понедельник -> 1 (PostgreSQL), 7=воскресенье -> 0 (PostgreSQL)
+                    pg_weekday = weekday_num % 7
+                    queryset = queryset.extra(
+                        where=["EXTRACT(dow FROM deadline) = %s"],
+                        params=[pg_weekday]
+                    )
+            except ValueError:
+                pass
+
+        # Дополнительные фильтры
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+
+        # Фильтрация просроченных задач
+        is_overdue = self.request.query_params.get('is_overdue')
+        if is_overdue == 'true':
+            queryset = queryset.filter(
+                deadline__lt=timezone.now()
+            ).exclude(status='done')
+        elif is_overdue == 'false':
+            queryset = queryset.filter(
+                Q(deadline__gte=timezone.now()) | Q(status='done')
+            )
+
+        # Фильтрация по категориям
+        category_id = self.request.query_params.get('categories')
+        if category_id:
+            queryset = queryset.filter(categories__id=category_id)
+
+        # Поиск
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search) | Q(description__icontains=search)
+            )
+
+        # Сортировка
+        ordering = self.request.query_params.get('ordering', '-created_at')
+        if ordering:
+            queryset = queryset.order_by(ordering)
+
+        return queryset.distinct()
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+
+        # Добавляем информацию о фильтре в ответ
+        weekday = request.query_params.get('weekday', '').lower()
+        weekday_num = request.query_params.get('weekday_num')
+
+        filter_info = {}
+        if weekday:
+            filter_info['filtered_by_weekday'] = weekday.title()
+        elif weekday_num:
+            try:
+                weekday_num = int(weekday_num)
+                if 1 <= weekday_num <= 7:
+                    weekday_names = ['', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота',
+                                     'Воскресенье']
+                    filter_info['filtered_by_weekday'] = weekday_names[weekday_num]
+            except ValueError:
+                pass
+
+        if not filter_info:
+            filter_info['showing'] = 'Все задачи'
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+            response.data['filter_info'] = filter_info
+            return response
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'filter_info': filter_info,
+            'count': queryset.count(),
+            'results': serializer.data
+        })
 
 
 class TaskListAPIView(generics.ListAPIView):
@@ -134,15 +275,39 @@ class TaskDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
 
 class SubTaskListCreateView(APIView):
     """
-    Представление для создания и получения списка подзадач.
+    Представление для создания и получения списка подзадач с пагинацией.
 
-    GET /api/subtasks/ - получить список всех подзадач
+    GET /api/subtasks/ - получить список всех подзадач (с пагинацией, 5 на страницу)
     POST /api/subtasks/ - создать новую подзадачу
+
+    Параметры фильтрации для GET:
+    - task_title: название главной задачи (частичное совпадение)
+    - task_title_exact: точное название главной задачи
+    - status: статус подзадачи
+    - task_id: ID главной задачи
+    - search: поиск по названию и описанию подзадачи
+    - ordering: сортировка (по умолчанию -created_at)
+
+    Примеры:
+    - /api/subtasks/ - все подзадачи с пагинацией
+    - /api/subtasks/?task_title=Django - подзадачи задач, содержащих "Django" в названии
+    - /api/subtasks/?status=done - завершенные подзадачи
+    - /api/subtasks/?task_title=Django&status=in_progress - подзадачи задач с "Django" в статусе "в работе"
     """
 
     def get(self, request):
         """Получение списка всех подзадач."""
         subtasks = SubTask.objects.all().select_related('task')
+
+        # Фильтрация по названию главной задачи (частичное совпадение)
+        task_title = request.query_params.get('task_title')
+        if task_title:
+            subtasks = subtasks.filter(task__title__icontains=task_title)
+
+        # Фильтрация по точному названию главной задачи
+        task_title_exact = request.query_params.get('task_title_exact')
+        if task_title_exact:
+            subtasks = subtasks.filter(task__title__iexact=task_title_exact)
 
         # Фильтрация по задаче
         task_id = request.query_params.get('task_id')
@@ -161,13 +326,45 @@ class SubTaskListCreateView(APIView):
                 Q(title__icontains=search) | Q(description__icontains=search)
             )
 
-        # Сортировка
+        # Сортировка (по умолчанию по убыванию даты - от последнего к первому)
         ordering = request.query_params.get('ordering', '-created_at')
         if ordering:
             subtasks = subtasks.order_by(ordering)
 
+        # Информация о примененных фильтрах
+        filter_info = {}
+        if task_title:
+            filter_info['filtered_by_task_title'] = task_title
+        if task_title_exact:
+            filter_info['filtered_by_exact_task_title'] = task_title_exact
+        if task_id:
+            try:
+                task = Task.objects.get(id=task_id)
+                filter_info['filtered_by_task'] = task.title
+            except Task.DoesNotExist:
+                pass
+        if status_filter:
+            filter_info['filtered_by_status'] = status_filter
+        if search:
+            filter_info['search_query'] = search
+
+        if not filter_info:
+            filter_info['showing'] = 'Все подзадачи'
+
+        # Применяем пагинацию
+        paginator = SubTaskPagination()
+        page = paginator.paginate_queryset(subtasks, request)
+
+        if page is not None:
+            serializer = SubTaskSerializer(page, many=True)
+            response = paginator.get_paginated_response(serializer.data)
+            response.data['filter_info'] = filter_info
+            return response
+
+        # Если пагинация не применилась (не должно случиться)
         serializer = SubTaskSerializer(subtasks, many=True)
         return Response({
+            'filter_info': filter_info,
             'count': subtasks.count(),
             'results': serializer.data
         })
@@ -396,6 +593,51 @@ def bulk_update_subtasks_status(request):
         status=status.HTTP_201_CREATED
     )
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# Дополнительный эндпоинт для получения информации о днях недели
+@api_view(['GET'])
+def weekday_info_view(request):
+    """
+    Эндпоинт для получения информации о доступных днях недели.
+
+    GET /api/weekdays/
+    """
+    weekdays = [
+        {'number': 1, 'name': 'monday', 'display_name': 'Понедельник', 'short': 'mon'},
+        {'number': 2, 'name': 'tuesday', 'display_name': 'Вторник', 'short': 'tue'},
+        {'number': 3, 'name': 'wednesday', 'display_name': 'Среда', 'short': 'wed'},
+        {'number': 4, 'name': 'thursday', 'display_name': 'Четверг', 'short': 'thu'},
+        {'number': 5, 'name': 'friday', 'display_name': 'Пятница', 'short': 'fri'},
+        {'number': 6, 'name': 'saturday', 'display_name': 'Суббота', 'short': 'sat'},
+        {'number': 7, 'name': 'sunday', 'display_name': 'Воскресенье', 'short': 'sun'},
+    ]
+
+    return Response({
+        'weekdays': weekdays,
+        'usage_examples': [
+            '/api/tasks/by-weekday/?weekday=monday',
+            '/api/tasks/by-weekday/?weekday_num=1',
+            '/api/tasks/by-weekday/?weekday=friday&status=in_progress'
+        ]
+    })
+
+class TaskRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Эндпоинт для получения, обновления и удаления конкретной задачи по ID.
+
+    GET /api/tasks/{id}/
+    PUT /api/tasks/{id}/
+    PATCH /api/tasks/{id}/
+    DELETE /api/tasks/{id}/
+    """
+    queryset = Task.objects.all().prefetch_related('categories', 'subtasks')
+    lookup_field = 'id'
+
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            return TaskUpdateSerializer
+        return TaskDetailSerializer
 
 
 class TaskListAPIView(generics.ListAPIView):
