@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils import timezone
+from django.contrib.auth.models import User
 
 class CategoryManager(models.Manager):
     """
@@ -86,6 +87,14 @@ class Task(models.Model):
     deadline = models.DateTimeField(verbose_name="Дедлайн")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
 
+    # Добавляем поле владельца
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='tasks',
+        verbose_name="Создатель"
+    )
+
     class Meta:
         verbose_name = "Задача"
         verbose_name_plural = "Задачи"
@@ -121,6 +130,14 @@ class Task(models.Model):
     def completed_subtasks_count(self):
         """Количество выполненных подзадач."""
         return self.subtasks.filter(status='done').count()
+
+    # def save(self, *args, **kwargs):
+    #     # Автоматически устанавливаем создателя при создании
+    #     if not self.pk and not self.created_by_id:
+    #         # Если это новая задача и создатель не указан
+    #         if hasattr(self, '_request_user'):
+    #             self.created_by = self._request_user
+    #     super().save(*args, **kwargs)
 
 class SubTask(models.Model):
     """Отдельная часть основной задачи (Task)."""

@@ -6,7 +6,7 @@ class CustomPageNumberPagination(PageNumberPagination):
     """
     Кастомная пагинация с максимум 6 объектами на странице.
     """
-    page_size = 6
+    page_size = 5
     page_size_query_param = 'page_size'
     max_page_size = 50
 

@@ -2,7 +2,7 @@ from django.http import HttpResponse
 from django.shortcuts import render, get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics, status, filters, permissions, viewsets
-from rest_framework.decorators import api_view, action
+from rest_framework.decorators import api_view, action, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
@@ -22,6 +22,7 @@ from .serializers import (
     SubTaskUpdateSerializer
 )
 import logging
+from .permissions import IsOwnerOrReadOnly, IsAdminOrReadOnly, IsOwnerOrAdmin
 
 logger = logging.getLogger('myapp')
 
@@ -53,171 +54,204 @@ class SubTaskPagination(PageNumberPagination):
 # REST API представления для задач
 
 class TaskListCreateAPIView(generics.ListCreateAPIView):
+    # """
+    # Эндпоинт для создания и получения списка задач.
+    #
+    # GET /tasks/ - получить список задач с фильтрацией, поиском и сортировкой
+    # POST /tasks/ - создать новую задачу
+    #
+    # Параметры фильтрации:
+    # - status: фильтр по статусу
+    # - is_overdue: фильтр просроченных задач (true/false)
+    # - categories: фильтр по категориям (ID категории)
+    # - search: поиск по названию и описанию
+    # - ordering: сортировка (по умолчанию -created_at)
+    # """
+    # queryset = Task.objects.all().prefetch_related('categories', 'subtasks')
+    #
+    # # Бэкенды для отображения полей в DRF интерфейсе
+    # filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    #
+    # # Поля для поиска (отобразятся в интерфейсе)
+    # search_fields = ['title', 'description']
+    #
+    # # Поля для сортировки (отобразятся в интерфейсе)
+    # ordering_fields = ['created_at']
+    # ordering = ['-created_at']
+    #
+    # # Простая фильтрация (отобразится в интерфейсе)
+    # filterset_fields = ['status', 'deadline']
+    #
+    # def get_serializer_class(self):
+    #     if self.request.method == 'POST':
+    #         return TaskCreateSerializer
+    #     return TaskListSerializer
+    #
+    # def get_queryset(self):
+    #     queryset = super().get_queryset()
+    #
+    #     # Фильтрация по статусу
+    #     status_filter = self.request.query_params.get('status')
+    #     if status_filter:
+    #         queryset = queryset.filter(status=status_filter)
+    #
+    #     # Фильтрация просроченных задач
+    #     is_overdue = self.request.query_params.get('is_overdue')
+    #     if is_overdue == 'true':
+    #         queryset = queryset.filter(
+    #             deadline__lt=timezone.now()
+    #         ).exclude(status='done')
+    #     elif is_overdue == 'false':
+    #         queryset = queryset.filter(
+    #             Q(deadline__gte=timezone.now()) | Q(status='done')
+    #         )
+    #
+    #     # Фильтрация по категориям
+    #     category_id = self.request.query_params.get('categories')
+    #     if category_id:
+    #         queryset = queryset.filter(categories__id=category_id)
+    #
+    #     # Поиск
+    #     search = self.request.query_params.get('search')
+    #     if search:
+    #         queryset = queryset.filter(
+    #             Q(title__icontains=search) | Q(description__icontains=search)
+    #         )
+    #
+    #     # Сортировка
+    #     ordering = self.request.query_params.get('ordering', '-created_at')
+    #     if ordering:
+    #         queryset = queryset.order_by(ordering)
+    #
+    #     return queryset.distinct()
+    #
+    # def create(self, request, *args, **kwargs):
+    #     serializer = self.get_serializer(data=request.data)
+    #     if serializer.is_valid():
+    #         task = serializer.save()
+    #         # Возвращаем детальную информацию о созданной задаче
+    #         detail_serializer = TaskDetailSerializer(task)
+    #         return Response(
+    #             {
+    #                 'message': 'Задача успешно создана',
+    #                 'task': detail_serializer.data
+    #             },
+    #             status=status.HTTP_201_CREATED
+    #         )
+    #
+    #     logger.info(f"User {request.user} creating new task: {request.data.get('title', 'Unknown')}")
+    #     try:
+    #         response = super().create(request, *args, **kwargs)
+    #         logger.info(f"Task created successfully with ID: {response.data.get('task', {}).get('id', 'Unknown')}")
+    #         return response
+    #     except Exception as e:
+    #         logger.error(f"Error creating task: {str(e)}", exc_info=True)
+    #         raise
+    #
+    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    #
+    #     def list(self, request, *args, **kwargs):
+    #         queryset = self.get_queryset()
+    #
+    #     # Информация о примененных фильтрах
+    #     filter_info = {}
+    #     status_filter = request.query_params.get('status')
+    #     deadline_filter = request.query_params.get('deadline')
+    #     deadline_from = request.query_params.get('deadline_from')
+    #     deadline_to = request.query_params.get('deadline_to')
+    #     is_overdue = request.query_params.get('is_overdue')
+    #     category_id = request.query_params.get('categories')
+    #     search = request.query_params.get('search')
+    #     ordering = request.query_params.get('ordering', '-created_at')
+    #
+    #     if status_filter:
+    #         filter_info['filtered_by_status'] = status_filter
+    #     if deadline_filter:
+    #         filter_info['filtered_by_deadline'] = deadline_filter
+    #     if deadline_from:
+    #         filter_info['deadline_from'] = deadline_from
+    #     if deadline_to:
+    #         filter_info['deadline_to'] = deadline_to
+    #     if is_overdue:
+    #         filter_info['is_overdue'] = is_overdue
+    #     if category_id:
+    #         try:
+    #             category = Category.objects.get(id=category_id)
+    #             filter_info['filtered_by_category'] = category.name
+    #         except Category.DoesNotExist:
+    #             pass
+    #     if search:
+    #         filter_info['search_query'] = search
+    #
+    #     filter_info['ordering'] = ordering
+    #
+    #     if len([k for k in filter_info.keys() if k != 'ordering']) == 0:
+    #         filter_info['showing'] = 'Все задачи'
+    #
+    #     page = self.paginate_queryset(queryset)
+    #     if page is not None:
+    #         serializer = self.get_serializer(page, many=True)
+    #         response = self.get_paginated_response(serializer.data)
+    #         response.data['filter_info'] = filter_info
+    #         return response
+    #
+    #     serializer = self.get_serializer(queryset, many=True)
+    #     return Response({
+    #         'filter_info': filter_info,
+    #         'count': queryset.count(),
+    #         'results': serializer.data
+    #     })
+    #
+    #     logger.info(f"User {request.user} requested task list")
+    #     response = super().list(request, *args, **kwargs)
+    #     logger.info(f"Returned {len(response.data.get('results', []))} tasks")
+    #     return response
+
     """
-    Эндпоинт для создания и получения списка задач.
-
-    GET /tasks/ - получить список задач с фильтрацией, поиском и сортировкой
-    POST /tasks/ - создать новую задачу
-
-    Параметры фильтрации:
-    - status: фильтр по статусу
-    - is_overdue: фильтр просроченных задач (true/false)
-    - categories: фильтр по категориям (ID категории)
-    - search: поиск по названию и описанию
-    - ordering: сортировка (по умолчанию -created_at)
-    """
-    queryset = Task.objects.all().prefetch_related('categories', 'subtasks')
-
-    # Бэкенды для отображения полей в DRF интерфейсе
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-
-    # Поля для поиска (отобразятся в интерфейсе)
-    search_fields = ['title', 'description']
-
-    # Поля для сортировки (отобразятся в интерфейсе)
-    ordering_fields = ['created_at']
-    ordering = ['-created_at']
-
-    # Простая фильтрация (отобразится в интерфейсе)
-    filterset_fields = ['status', 'deadline']
-
-    def get_serializer_class(self):
-        if self.request.method == 'POST':
-            return TaskCreateSerializer
-        return TaskListSerializer
+        Эндпоинт для создания и получения списка задач.
+        Только аутентифицированные пользователи могут создавать задачи.
+        Пользователи видят только свои задачи.
+        """
+    serializer_class = TaskListSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        """Пользователи видят только свои задачи"""
+        if self.request.user.is_staff:
+            # Администраторы видят все задачи
+            return Task.objects.all().prefetch_related('categories', 'subtasks')
+        else:
+            # Обычные пользователи видят только свои задачи
+            return Task.objects.filter(created_by=self.request.user).prefetch_related('categories', 'subtasks')
 
-        # Фильтрация по статусу
-        status_filter = self.request.query_params.get('status')
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-
-        # Фильтрация просроченных задач
-        is_overdue = self.request.query_params.get('is_overdue')
-        if is_overdue == 'true':
-            queryset = queryset.filter(
-                deadline__lt=timezone.now()
-            ).exclude(status='done')
-        elif is_overdue == 'false':
-            queryset = queryset.filter(
-                Q(deadline__gte=timezone.now()) | Q(status='done')
-            )
-
-        # Фильтрация по категориям
-        category_id = self.request.query_params.get('categories')
-        if category_id:
-            queryset = queryset.filter(categories__id=category_id)
-
-        # Поиск
-        search = self.request.query_params.get('search')
-        if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search) | Q(description__icontains=search)
-            )
-
-        # Сортировка
-        ordering = self.request.query_params.get('ordering', '-created_at')
-        if ordering:
-            queryset = queryset.order_by(ordering)
-
-        return queryset.distinct()
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            task = serializer.save()
-            # Возвращаем детальную информацию о созданной задаче
-            detail_serializer = TaskDetailSerializer(task)
-            return Response(
-                {
-                    'message': 'Задача успешно создана',
-                    'task': detail_serializer.data
-                },
-                status=status.HTTP_201_CREATED
-            )
-
-        logger.info(f"User {request.user} creating new task: {request.data.get('title', 'Unknown')}")
-        try:
-            response = super().create(request, *args, **kwargs)
-            logger.info(f"Task created successfully with ID: {response.data.get('task', {}).get('id', 'Unknown')}")
-            return response
-        except Exception as e:
-            logger.error(f"Error creating task: {str(e)}", exc_info=True)
-            raise
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        def list(self, request, *args, **kwargs):
-            queryset = self.get_queryset()
-
-        # Информация о примененных фильтрах
-        filter_info = {}
-        status_filter = request.query_params.get('status')
-        deadline_filter = request.query_params.get('deadline')
-        deadline_from = request.query_params.get('deadline_from')
-        deadline_to = request.query_params.get('deadline_to')
-        is_overdue = request.query_params.get('is_overdue')
-        category_id = request.query_params.get('categories')
-        search = request.query_params.get('search')
-        ordering = request.query_params.get('ordering', '-created_at')
-
-        if status_filter:
-            filter_info['filtered_by_status'] = status_filter
-        if deadline_filter:
-            filter_info['filtered_by_deadline'] = deadline_filter
-        if deadline_from:
-            filter_info['deadline_from'] = deadline_from
-        if deadline_to:
-            filter_info['deadline_to'] = deadline_to
-        if is_overdue:
-            filter_info['is_overdue'] = is_overdue
-        if category_id:
-            try:
-                category = Category.objects.get(id=category_id)
-                filter_info['filtered_by_category'] = category.name
-            except Category.DoesNotExist:
-                pass
-        if search:
-            filter_info['search_query'] = search
-
-        filter_info['ordering'] = ordering
-
-        if len([k for k in filter_info.keys() if k != 'ordering']) == 0:
-            filter_info['showing'] = 'Все задачи'
-
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            response = self.get_paginated_response(serializer.data)
-            response.data['filter_info'] = filter_info
-            return response
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            'filter_info': filter_info,
-            'count': queryset.count(),
-            'results': serializer.data
-        })
-
-        logger.info(f"User {request.user} requested task list")
-        response = super().list(request, *args, **kwargs)
-        logger.info(f"Returned {len(response.data.get('results', []))} tasks")
-        return response
+    def perform_create(self, serializer):
+        """Автоматически устанавливаем создателя при создании задачи"""
+        serializer.save(created_by=self.request.user)
 
 
 class TaskRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
+    # """
+    # Эндпоинт для получения, обновления и удаления конкретной задачи по ID.
+    #
+    # GET /api/tasks/{id}/
+    # PUT /api/tasks/{id}/
+    # PATCH /api/tasks/{id}/
+    # DELETE /api/tasks/{id}/
+    # """
+    # queryset = Task.objects.all().prefetch_related('categories', 'subtasks')
+    # lookup_field = 'id'
+    #
+    # def get_serializer_class(self):
+    #     if self.request.method in ['PUT', 'PATCH']:
+    #         return TaskUpdateSerializer
+    #     return TaskDetailSerializer
     """
-    Эндпоинт для получения, обновления и удаления конкретной задачи по ID.
-
-    GET /api/tasks/{id}/
-    PUT /api/tasks/{id}/
-    PATCH /api/tasks/{id}/
-    DELETE /api/tasks/{id}/
+        Эндпоинт для получения, обновления и удаления задачи.
+        Только владелец или администратор могут изменять/удалять задачу.
     """
     queryset = Task.objects.all().prefetch_related('categories', 'subtasks')
     lookup_field = 'id'
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrAdmin]
 
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:
@@ -354,180 +388,213 @@ class TaskListByWeekdayAPIView(generics.ListAPIView):
 
 # Задание 2: Generic Views для подзадач
 class SubTaskListCreateAPIView(generics.ListCreateAPIView):
+    # """
+    # Эндпоинт для создания и получения списка подзадач.
+    #
+    # GET /subtasks/ - получить список подзадач с фильтрацией, поиском и сортировкой
+    # POST /subtasks/ - создать новую подзадачу
+    #
+    # Параметры фильтрации:
+    # - task_title: название главной задачи (частичное совпадение)
+    # - task_title_exact: точное название главной задачи
+    # - task_id: ID главной задачи
+    # - status: статус подзадачи
+    # - search: поиск по названию и описанию
+    # - ordering: сортировка (по умолчанию -created_at)
+    # """
+    # queryset = SubTask.objects.all().select_related('task')
+    # pagination_class = SubTaskPagination
+    #
+    # # Бэкенды для отображения полей в DRF интерфейсе
+    # filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    #
+    # # Поля для поиска (отобразятся в интерфейсе)
+    # search_fields = ['title', 'description']
+    #
+    # # Поля для сортировки (отобразятся в интерфейсе)
+    # ordering_fields = ['created_at']
+    # ordering = ['-created_at']
+    #
+    # # Простая фильтрация (отобразится в интерфейсе)
+    # filterset_fields = ['status', 'deadline']
+    #
+    # def get_serializer_class(self):
+    #     if self.request.method == 'POST':
+    #         return SubTaskCreateSerializer
+    #     return SubTaskSerializer
+    #
+    # def get_queryset(self):
+    #     queryset = super().get_queryset()
+    #
+    #     # Фильтрация по названию главной задачи (частичное совпадение)
+    #     task_title = self.request.query_params.get('task_title')
+    #     if task_title:
+    #         queryset = queryset.filter(task__title__icontains=task_title)
+    #
+    #     # Фильтрация по точному названию главной задачи
+    #     task_title_exact = self.request.query_params.get('task_title_exact')
+    #     if task_title_exact:
+    #         queryset = queryset.filter(task__title__iexact=task_title_exact)
+    #
+    #     # Фильтрация по задаче
+    #     task_id = self.request.query_params.get('task_id')
+    #     if task_id:
+    #         queryset = queryset.filter(task_id=task_id)
+    #
+    #     # Фильтрация по статусу
+    #     status_filter = self.request.query_params.get('status')
+    #     if status_filter:
+    #         queryset = queryset.filter(status=status_filter)
+    #
+    #     # Фильтрация по дедлайну
+    #     deadline_filter = self.request.query_params.get('deadline')
+    #     if deadline_filter:
+    #         queryset = queryset.filter(deadline__date=deadline_filter)
+    #
+    #     # Поиск
+    #     search = self.request.query_params.get('search')
+    #     if search:
+    #         queryset = queryset.filter(
+    #             Q(title__icontains=search) | Q(description__icontains=search)
+    #         )
+    #
+    #     # Сортировка
+    #     ordering = self.request.query_params.get('ordering', '-created_at')
+    #     if ordering:
+    #         queryset = queryset.order_by(ordering)
+    #
+    #     return queryset
+    #
+    # def create(self, request, *args, **kwargs):
+    #     serializer = self.get_serializer(data=request.data)
+    #     if serializer.is_valid():
+    #         subtask = serializer.save()
+    #         response_serializer = SubTaskSerializer(subtask)
+    #         return Response(
+    #             {
+    #                 'message': 'Подзадача успешно создана',
+    #                 'subtask': response_serializer.data
+    #             },
+    #             status=status.HTTP_201_CREATED
+    #         )
+    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    #
+    # def list(self, request, *args, **kwargs):
+    #     queryset = self.get_queryset()
+    #
+    #     # Информация о примененных фильтрах
+    #     filter_info = {}
+    #     task_title = request.query_params.get('task_title')
+    #     task_title_exact = request.query_params.get('task_title_exact')
+    #     task_id = request.query_params.get('task_id')
+    #     status_filter = request.query_params.get('status')
+    #     search = request.query_params.get('search')
+    #
+    #     if task_title:
+    #         filter_info['filtered_by_task_title'] = task_title
+    #     if task_title_exact:
+    #         filter_info['filtered_by_exact_task_title'] = task_title_exact
+    #     if task_id:
+    #         try:
+    #             task = Task.objects.get(id=task_id)
+    #             filter_info['filtered_by_task'] = task.title
+    #         except Task.DoesNotExist:
+    #             pass
+    #     if status_filter:
+    #         filter_info['filtered_by_status'] = status_filter
+    #     if search:
+    #         filter_info['search_query'] = search
+    #
+    #     if not filter_info:
+    #         filter_info['showing'] = 'Все подзадачи'
+    #
+    #     page = self.paginate_queryset(queryset)
+    #     if page is not None:
+    #         serializer = self.get_serializer(page, many=True)
+    #         response = self.get_paginated_response(serializer.data)
+    #         response.data['filter_info'] = filter_info
+    #         return response
+    #
+    #     serializer = self.get_serializer(queryset, many=True)
+    #     return Response({
+    #         'filter_info': filter_info,
+    #         'count': queryset.count(),
+    #         'results': serializer.data
+    #     })
     """
-    Эндпоинт для создания и получения списка подзадач.
+        Эндпоинт для создания и получения подзадач.
+        Пользователи видят только подзадачи своих задач.
+        """
+    permission_classes = [permissions.IsAuthenticated]
 
-    GET /subtasks/ - получить список подзадач с фильтрацией, поиском и сортировкой
-    POST /subtasks/ - создать новую подзадачу
-
-    Параметры фильтрации:
-    - task_title: название главной задачи (частичное совпадение)
-    - task_title_exact: точное название главной задачи
-    - task_id: ID главной задачи
-    - status: статус подзадачи
-    - search: поиск по названию и описанию
-    - ordering: сортировка (по умолчанию -created_at)
-    """
-    queryset = SubTask.objects.all().select_related('task')
-    pagination_class = SubTaskPagination
-
-    # Бэкенды для отображения полей в DRF интерфейсе
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-
-    # Поля для поиска (отобразятся в интерфейсе)
-    search_fields = ['title', 'description']
-
-    # Поля для сортировки (отобразятся в интерфейсе)
-    ordering_fields = ['created_at']
-    ordering = ['-created_at']
-
-    # Простая фильтрация (отобразится в интерфейсе)
-    filterset_fields = ['status', 'deadline']
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return SubTask.objects.all().select_related('task')
+        else:
+            return SubTask.objects.filter(task__created_by=self.request.user).select_related('task')
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
             return SubTaskCreateSerializer
         return SubTaskSerializer
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-
-        # Фильтрация по названию главной задачи (частичное совпадение)
-        task_title = self.request.query_params.get('task_title')
-        if task_title:
-            queryset = queryset.filter(task__title__icontains=task_title)
-
-        # Фильтрация по точному названию главной задачи
-        task_title_exact = self.request.query_params.get('task_title_exact')
-        if task_title_exact:
-            queryset = queryset.filter(task__title__iexact=task_title_exact)
-
-        # Фильтрация по задаче
-        task_id = self.request.query_params.get('task_id')
-        if task_id:
-            queryset = queryset.filter(task_id=task_id)
-
-        # Фильтрация по статусу
-        status_filter = self.request.query_params.get('status')
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-
-        # Фильтрация по дедлайну
-        deadline_filter = self.request.query_params.get('deadline')
-        if deadline_filter:
-            queryset = queryset.filter(deadline__date=deadline_filter)
-
-        # Поиск
-        search = self.request.query_params.get('search')
-        if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search) | Q(description__icontains=search)
-            )
-
-        # Сортировка
-        ordering = self.request.query_params.get('ordering', '-created_at')
-        if ordering:
-            queryset = queryset.order_by(ordering)
-
-        return queryset
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            subtask = serializer.save()
-            response_serializer = SubTaskSerializer(subtask)
-            return Response(
-                {
-                    'message': 'Подзадача успешно создана',
-                    'subtask': response_serializer.data
-                },
-                status=status.HTTP_201_CREATED
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-
-        # Информация о примененных фильтрах
-        filter_info = {}
-        task_title = request.query_params.get('task_title')
-        task_title_exact = request.query_params.get('task_title_exact')
-        task_id = request.query_params.get('task_id')
-        status_filter = request.query_params.get('status')
-        search = request.query_params.get('search')
-
-        if task_title:
-            filter_info['filtered_by_task_title'] = task_title
-        if task_title_exact:
-            filter_info['filtered_by_exact_task_title'] = task_title_exact
-        if task_id:
-            try:
-                task = Task.objects.get(id=task_id)
-                filter_info['filtered_by_task'] = task.title
-            except Task.DoesNotExist:
-                pass
-        if status_filter:
-            filter_info['filtered_by_status'] = status_filter
-        if search:
-            filter_info['search_query'] = search
-
-        if not filter_info:
-            filter_info['showing'] = 'Все подзадачи'
-
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            response = self.get_paginated_response(serializer.data)
-            response.data['filter_info'] = filter_info
-            return response
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            'filter_info': filter_info,
-            'count': queryset.count(),
-            'results': serializer.data
-        })
-
 
 class SubTaskRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
+    # """
+    # Эндпоинт для получения, обновления и удаления подзадач.
+    #
+    # GET /subtasks/{id}/ - получить подзадачу по ID
+    # PUT /subtasks/{id}/ - полное обновление подзадачи
+    # PATCH /subtasks/{id}/ - частичное обновление подзадачи
+    # DELETE /subtasks/{id}/ - удаление подзадачи
+    # """
+    # queryset = SubTask.objects.all().select_related('task')
+    # lookup_field = 'id'
+    #
+    # def get_serializer_class(self):
+    #     if self.request.method in ['PUT', 'PATCH']:
+    #         return SubTaskUpdateSerializer
+    #     return SubTaskSerializer
+    #
+    # def update(self, request, *args, **kwargs):
+    #     partial = kwargs.pop('partial', False)
+    #     instance = self.get_object()
+    #     serializer = self.get_serializer(instance, data=request.data, partial=partial)
+    #
+    #     if serializer.is_valid():
+    #         updated_subtask = serializer.save()
+    #         response_serializer = SubTaskSerializer(updated_subtask)
+    #         return Response({
+    #             'message': 'Подзадача успешно обновлена',
+    #             'subtask': response_serializer.data
+    #         })
+    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    #
+    # def destroy(self, request, *args, **kwargs):
+    #     instance = self.get_object()
+    #     task_title = instance.task.title
+    #     subtask_title = instance.title
+    #     self.perform_destroy(instance)
+    #     return Response({
+    #         'message': f'Подзадача "{subtask_title}" задачи "{task_title}" успешно удалена'
+    #     }, status=status.HTTP_204_NO_CONTENT)
     """
-    Эндпоинт для получения, обновления и удаления подзадач.
-
-    GET /subtasks/{id}/ - получить подзадачу по ID
-    PUT /subtasks/{id}/ - полное обновление подзадачи
-    PATCH /subtasks/{id}/ - частичное обновление подзадачи
-    DELETE /subtasks/{id}/ - удаление подзадачи
-    """
-    queryset = SubTask.objects.all().select_related('task')
+        Эндпоинт для работы с конкретной подзадачей.
+        Только владелец задачи или администратор могут изменять подзадачу.
+        """
     lookup_field = 'id'
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrAdmin]
+
+    def get_queryset(self):
+        if self.request.user.is_staff:
+            return SubTask.objects.all().select_related('task')
+        else:
+            return SubTask.objects.filter(task__created_by=self.request.user).select_related('task')
 
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:
             return SubTaskUpdateSerializer
         return SubTaskSerializer
-
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-
-        if serializer.is_valid():
-            updated_subtask = serializer.save()
-            response_serializer = SubTaskSerializer(updated_subtask)
-            return Response({
-                'message': 'Подзадача успешно обновлена',
-                'subtask': response_serializer.data
-            })
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        task_title = instance.task.title
-        subtask_title = instance.title
-        self.perform_destroy(instance)
-        return Response({
-            'message': f'Подзадача "{subtask_title}" задачи "{task_title}" успешно удалена'
-        }, status=status.HTTP_204_NO_CONTENT)
 
 
 # # Представления для работы с категориями
@@ -566,130 +633,381 @@ class SubTaskRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView)
 #
 # Функциональные представления и дополнительные эндпоинты
 @api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
 def task_statistics_view(request):
+    # """
+    # Агрегирующий эндпоинт для получения статистики задач.
+    #
+    # GET /api/tasks/statistics/
+    # """
+    # # Общее количество задач
+    # total_tasks = Task.objects.count()
+    #
+    # # Количество задач по статусам
+    # status_stats = Task.objects.values('status').annotate(count=Count('id'))
+    # status_counts = {item['status']: item['count'] for item in status_stats}
+    #
+    # # Все возможные статусы с нулевыми значениями по умолчанию
+    # all_statuses = ['new', 'in_progress', 'pending', 'blocked', 'done']
+    # status_breakdown = {status: status_counts.get(status, 0) for status in all_statuses}
+    #
+    # # Просроченные задачи
+    # overdue_tasks = Task.objects.filter(
+    #     deadline__lt=timezone.now()
+    # ).exclude(status='done').count()
+    #
+    # # Статистика по категориям
+    # category_stats = Category.objects.annotate(
+    #     task_count=Count('tasks')
+    # ).values('name', 'task_count')
+    #
+    # # Статистика по подзадачам
+    # total_subtasks = SubTask.objects.count()
+    # subtask_status_stats = SubTask.objects.values('status').annotate(count=Count('id'))
+    # subtask_status_counts = {item['status']: item['count'] for item in subtask_status_stats}
+    # subtask_breakdown = {status: subtask_status_counts.get(status, 0) for status in all_statuses}
+    #
+    # # Задачи без подзадач
+    # tasks_without_subtasks = Task.objects.filter(subtasks__isnull=True).count()
+    #
+    # # Средний процент выполнения задач
+    # tasks_with_subtasks = Task.objects.filter(subtasks__isnull=False).distinct()
+    # completion_rates = []
+    # for task in tasks_with_subtasks:
+    #     total_subs = task.subtasks.count()
+    #     completed_subs = task.subtasks.filter(status='done').count()
+    #     if total_subs > 0:
+    #         completion_rates.append((completed_subs / total_subs) * 100)
+    #
+    # avg_completion_rate = sum(completion_rates) / len(completion_rates) if completion_rates else 0
+    #
+    # # Формирование ответа
+    # statistics = {
+    #     'overview': {
+    #         'total_tasks': total_tasks,
+    #         'total_subtasks': total_subtasks,
+    #         'overdue_tasks': overdue_tasks,
+    #         'tasks_without_subtasks': tasks_without_subtasks,
+    #         'average_completion_rate': round(avg_completion_rate, 2)
+    #     },
+    #     'task_status_breakdown': status_breakdown,
+    #     'subtask_status_breakdown': subtask_breakdown,
+    #     'category_statistics': list(category_stats),
+    #     'completion_metrics': {
+    #         'completed_tasks': status_counts.get('done', 0),
+    #         'in_progress_tasks': status_counts.get('in_progress', 0),
+    #         'pending_tasks': status_counts.get('pending', 0),
+    #         'blocked_tasks': status_counts.get('blocked', 0),
+    #         'new_tasks': status_counts.get('new', 0)
+    #     }
+    # }
+    #
+    # return Response(statistics)
     """
-    Агрегирующий эндпоинт для получения статистики задач.
+        Статистика задач.
+        Доступна только аутентифицированным пользователям.
+        Администраторы видят общую статистику, пользователи - только свою.
+        """
+    logger.info(f"User {request.user} generating task statistics")
 
-    GET /api/tasks/statistics/
-    """
-    # Общее количество задач
-    total_tasks = Task.objects.count()
+    try:
+        # Определяем фильтр в зависимости от роли пользователя
+        if request.user.is_staff:
+            # Администраторы видят все задачи
+            task_queryset = Task.objects.all()
+            subtask_queryset = SubTask.objects.all()
+        else:
+            # Обычные пользователи видят только свои задачи
+            task_queryset = Task.objects.filter(created_by=request.user)
+            subtask_queryset = SubTask.objects.filter(task__created_by=request.user)
 
-    # Количество задач по статусам
-    status_stats = Task.objects.values('status').annotate(count=Count('id'))
-    status_counts = {item['status']: item['count'] for item in status_stats}
+        # Общее количество задач
+        total_tasks = task_queryset.count()
+        logger.debug(f"Total tasks count for user {request.user}: {total_tasks}")
 
-    # Все возможные статусы с нулевыми значениями по умолчанию
-    all_statuses = ['new', 'in_progress', 'pending', 'blocked', 'done']
-    status_breakdown = {status: status_counts.get(status, 0) for status in all_statuses}
+        # Количество задач по статусам
+        status_stats = task_queryset.values('status').annotate(count=Count('id'))
+        status_counts = {item['status']: item['count'] for item in status_stats}
 
-    # Просроченные задачи
-    overdue_tasks = Task.objects.filter(
-        deadline__lt=timezone.now()
-    ).exclude(status='done').count()
+        # Все возможные статусы с нулевыми значениями по умолчанию
+        all_statuses = ['new', 'in_progress', 'pending', 'blocked', 'done']
+        status_breakdown = {status: status_counts.get(status, 0) for status in all_statuses}
 
-    # Статистика по категориям
-    category_stats = Category.objects.annotate(
-        task_count=Count('tasks')
-    ).values('name', 'task_count')
+        # Просроченные задачи
+        overdue_tasks = task_queryset.filter(
+            deadline__lt=timezone.now()
+        ).exclude(status='done').count()
 
-    # Статистика по подзадачам
-    total_subtasks = SubTask.objects.count()
-    subtask_status_stats = SubTask.objects.values('status').annotate(count=Count('id'))
-    subtask_status_counts = {item['status']: item['count'] for item in subtask_status_stats}
-    subtask_breakdown = {status: subtask_status_counts.get(status, 0) for status in all_statuses}
+        # Статистика по категориям
+        if request.user.is_staff:
+            category_stats = Category.objects.annotate(
+                task_count=Count('tasks')
+            ).values('name', 'task_count')
+        else:
+            category_stats = Category.objects.annotate(
+                task_count=Count('tasks', filter=Q(tasks__created_by=request.user))
+            ).values('name', 'task_count')
 
-    # Задачи без подзадач
-    tasks_without_subtasks = Task.objects.filter(subtasks__isnull=True).count()
+        # Статистика по подзадачам
+        total_subtasks = subtask_queryset.count()
+        subtask_status_stats = subtask_queryset.values('status').annotate(count=Count('id'))
+        subtask_status_counts = {item['status']: item['count'] for item in subtask_status_stats}
+        subtask_breakdown = {status: subtask_status_counts.get(status, 0) for status in all_statuses}
 
-    # Средний процент выполнения задач
-    tasks_with_subtasks = Task.objects.filter(subtasks__isnull=False).distinct()
-    completion_rates = []
-    for task in tasks_with_subtasks:
-        total_subs = task.subtasks.count()
-        completed_subs = task.subtasks.filter(status='done').count()
-        if total_subs > 0:
-            completion_rates.append((completed_subs / total_subs) * 100)
+        # Задачи без подзадач
+        tasks_without_subtasks = task_queryset.filter(subtasks__isnull=True).count()
 
-    avg_completion_rate = sum(completion_rates) / len(completion_rates) if completion_rates else 0
+        # Средний процент выполнения задач
+        tasks_with_subtasks = task_queryset.filter(subtasks__isnull=False).distinct()
+        completion_rates = []
+        for task in tasks_with_subtasks:
+            total_subs = task.subtasks.count()
+            completed_subs = task.subtasks.filter(status='done').count()
+            if total_subs > 0:
+                completion_rates.append((completed_subs / total_subs) * 100)
 
-    # Формирование ответа
-    statistics = {
-        'overview': {
-            'total_tasks': total_tasks,
-            'total_subtasks': total_subtasks,
-            'overdue_tasks': overdue_tasks,
-            'tasks_without_subtasks': tasks_without_subtasks,
-            'average_completion_rate': round(avg_completion_rate, 2)
-        },
-        'task_status_breakdown': status_breakdown,
-        'subtask_status_breakdown': subtask_breakdown,
-        'category_statistics': list(category_stats),
-        'completion_metrics': {
-            'completed_tasks': status_counts.get('done', 0),
-            'in_progress_tasks': status_counts.get('in_progress', 0),
-            'pending_tasks': status_counts.get('pending', 0),
-            'blocked_tasks': status_counts.get('blocked', 0),
-            'new_tasks': status_counts.get('new', 0)
+        avg_completion_rate = sum(completion_rates) / len(completion_rates) if completion_rates else 0
+
+        # Формирование ответа
+        statistics = {
+            'user_info': {
+                'username': request.user.username,
+                'is_staff': request.user.is_staff,
+                'scope': 'all_users' if request.user.is_staff else 'personal'
+            },
+            'overview': {
+                'total_tasks': total_tasks,
+                'total_subtasks': total_subtasks,
+                'overdue_tasks': overdue_tasks,
+                'tasks_without_subtasks': tasks_without_subtasks,
+                'average_completion_rate': round(avg_completion_rate, 2)
+            },
+            'task_status_breakdown': status_breakdown,
+            'subtask_status_breakdown': subtask_breakdown,
+            'category_statistics': list(category_stats),
+            'completion_metrics': {
+                'completed_tasks': status_counts.get('done', 0),
+                'in_progress_tasks': status_counts.get('in_progress', 0),
+                'pending_tasks': status_counts.get('pending', 0),
+                'blocked_tasks': status_counts.get('blocked', 0),
+                'new_tasks': status_counts.get('new', 0)
+            }
         }
-    }
 
-    return Response(statistics)
+        logger.info(f"Task statistics generated successfully for user {request.user}")
+        return Response(statistics)
+
+    except Exception as e:
+        logger.error(f"Error generating task statistics for user {request.user}: {str(e)}", exc_info=True)
+        return Response(
+            {'error': 'Ошибка при генерации статистики задач'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
+    # """
+    # ViewSet для CRUD операций с категориями.
+    #
+    # list: GET /api/categories/ - получить список всех категорий
+    # create: POST /api/categories/ - создать новую категорию
+    # retrieve: GET /api/categories/{id}/ - получить конкретную категорию
+    # update: PUT /api/categories/{id}/ - полностью обновить категорию
+    # partial_update: PATCH /api/categories/{id}/ - частично обновить категорию
+    # destroy: DELETE /api/categories/{id}/ - удалить категорию
+    # count_tasks: GET /api/categories/count_tasks/ - подсчет задач для всех категорий
+    # """
+    # queryset = Category.objects.all()
+    # lookup_field = 'id'
+    #
+    # def get_serializer_class(self):
+    #     if self.action in ['create', 'update', 'partial_update']:
+    #         return CategoryCreateSerializer
+    #     return CategorySerializer
+    #
+    # def list(self, request, *args, **kwargs):
+    #     logger.info(f"User {request.user} requesting category list")
+    #     response = super().list(request, *args, **kwargs)
+    #     logger.info(f"Returned {len(response.data.get('results', []))} categories")
+    #     return response
+    #
+    # @action(detail=False, methods=['get'])
+    # def count_tasks(self, request):
+    #     """
+    #     Кастомный метод для подсчета количества задач, связанных с каждой категорией.
+    #
+    #     GET /api/categories/count_tasks/
+    #
+    #     Возвращает список категорий с количеством связанных задач.
+    #     """
+    #     logger.info(f"User {request.user} generating task statistics for categories")
+    #
+    #     try:
+    #         categories_with_counts = Category.objects.annotate(
+    #             tasks_count=Count('tasks', distinct=True),
+    #             active_tasks_count=Count(
+    #                 'tasks',
+    #                 filter=Q(tasks__status__in=['new', 'in_progress', 'pending']),
+    #                 distinct=True
+    #             ),
+    #             completed_tasks_count=Count(
+    #                 'tasks',
+    #                 filter=Q(tasks__status='done'),
+    #                 distinct=True
+    #             ),
+    #             overdue_tasks_count=Count(
+    #                 'tasks',
+    #                 filter=Q(tasks__deadline__lt=timezone.now()) & ~Q(tasks__status='done'),
+    #                 distinct=True
+    #             )
+    #         ).order_by('name')
+    #
+    #         results = []
+    #         for category in categories_with_counts:
+    #             results.append({
+    #                 'id': category.id,
+    #                 'name': category.name,
+    #                 'description': getattr(category, 'description', ''),  # Безопасное получение
+    #                 'color': getattr(category, 'color', ''),  # Безопасное получение
+    #                 'tasks_count': category.tasks_count,
+    #                 'active_tasks_count': category.active_tasks_count,
+    #                 'completed_tasks_count': category.completed_tasks_count,
+    #                 'overdue_tasks_count': category.overdue_tasks_count,
+    #                 'completion_percentage': round(
+    #                     (category.completed_tasks_count / category.tasks_count * 100)
+    #                     if category.tasks_count > 0 else 0, 2
+    #                 )
+    #             })
+    #
+    #         logger.info(f"Category statistics generated successfully. Total categories: {len(results)}")
+    #
+    #         return Response({
+    #             'message': 'Статистика задач по категориям',
+    #             'total_categories': len(results),
+    #             'categories': results
+    #         })
+    #
+    #     except Exception as e:
+    #         logger.error(f"Error generating category statistics: {str(e)}", exc_info=True)
+    #         return Response(
+    #             {'error': 'Ошибка при генерации статистики категорий'},
+    #             status=status.HTTP_500_INTERNAL_SERVER_ERROR
+    #         )
+    #
+    # def create(self, request, *args, **kwargs):
+    #     """Переопределяем создание для кастомного ответа и логирования"""
+    #     logger.info(f"User {request.user} creating new category: {request.data.get('name', 'Unknown')}")
+    #
+    #     serializer = self.get_serializer(data=request.data)
+    #     if serializer.is_valid():
+    #         category = serializer.save()
+    #         response_serializer = CategorySerializer(category)
+    #
+    #         logger.info(f"Category '{category.name}' created successfully with ID: {category.id}")
+    #
+    #         return Response(
+    #             {
+    #                 'message': 'Категория успешно создана',
+    #                 'category': response_serializer.data
+    #             },
+    #             status=status.HTTP_201_CREATED
+    #         )
+    #
+    #     logger.warning(f"Failed to create category. Validation errors: {serializer.errors}")
+    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    #
+    # def update(self, request, *args, **kwargs):
+    #     """Переопределяем обновление для кастомного ответа и логирования"""
+    #     partial = kwargs.pop('partial', False)
+    #     instance = self.get_object()
+    #
+    #     logger.info(f"User {request.user} updating category '{instance.name}' (ID: {instance.id})")
+    #
+    #     serializer = self.get_serializer(instance, data=request.data, partial=partial)
+    #
+    #     if serializer.is_valid():
+    #         updated_category = serializer.save()
+    #         response_serializer = CategorySerializer(updated_category)
+    #
+    #         logger.info(f"Category '{updated_category.name}' updated successfully")
+    #
+    #         return Response({
+    #             'message': 'Категория успешно обновлена',
+    #             'category': response_serializer.data
+    #         })
+    #
+    #     logger.warning(f"Failed to update category '{instance.name}'. Validation errors: {serializer.errors}")
+    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    #
+    # def destroy(self, request, *args, **kwargs):
+    #     """Переопределяем удаление для кастомного ответа и логирования"""
+    #     instance = self.get_object()
+    #     category_name = instance.name
+    #     category_id = instance.id
+    #
+    #     logger.info(f"User {request.user} attempting to delete category '{category_name}' (ID: {category_id})")
+    #
+    #     # Проверяем, есть ли связанные задачи
+    #     tasks_count = instance.tasks.count()
+    #     if tasks_count > 0:
+    #         logger.warning(f"Cannot delete category '{category_name}' - has {tasks_count} related tasks")
+    #         return Response({
+    #             'error': f'Нельзя удалить категорию "{category_name}", так как с ней связано {tasks_count} задач(и)'
+    #         }, status=status.HTTP_400_BAD_REQUEST)
+    #
+    #     # Выполняем удаление (мягкое, если настроено)
+    #     self.perform_destroy(instance)
+    #
+    #     logger.info(f"Category '{category_name}' (ID: {category_id}) deleted successfully")
+    #
+    #     return Response({
+    #         'message': f'Категория "{category_name}" успешно удалена'
+    #     }, status=status.HTTP_204_NO_CONTENT)
     """
-    ViewSet для CRUD операций с категориями.
-
-    list: GET /api/categories/ - получить список всех категорий
-    create: POST /api/categories/ - создать новую категорию
-    retrieve: GET /api/categories/{id}/ - получить конкретную категорию
-    update: PUT /api/categories/{id}/ - полностью обновить категорию
-    partial_update: PATCH /api/categories/{id}/ - частично обновить категорию
-    destroy: DELETE /api/categories/{id}/ - удалить категорию
-    count_tasks: GET /api/categories/count_tasks/ - подсчет задач для всех категорий
-    """
+        ViewSet для CRUD операций с категориями.
+        - Просмотр: все аутентифицированные пользователи
+        - Создание/изменение/удаление: только администраторы
+        """
     queryset = Category.objects.all()
     lookup_field = 'id'
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly]
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
             return CategoryCreateSerializer
         return CategorySerializer
 
-    def list(self, request, *args, **kwargs):
-        logger.info(f"User {request.user} requesting category list")
-        response = super().list(request, *args, **kwargs)
-        logger.info(f"Returned {len(response.data.get('results', []))} categories")
-        return response
-
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def count_tasks(self, request):
         """
-        Кастомный метод для подсчета количества задач, связанных с каждой категорией.
-
-        GET /api/categories/count_tasks/
-
-        Возвращает список категорий с количеством связанных задач.
+        Статистика по категориям.
+        Доступна всем аутентифицированным пользователям.
         """
         logger.info(f"User {request.user} generating task statistics for categories")
 
         try:
+            # Если пользователь администратор - показываем все задачи
+            # Если обычный пользователь - только его задачи
+            if request.user.is_staff:
+                task_filter = Q()
+            else:
+                task_filter = Q(tasks__created_by=request.user)
+
             categories_with_counts = Category.objects.annotate(
-                tasks_count=Count('tasks', distinct=True),
+                tasks_count=Count('tasks', filter=task_filter, distinct=True),
                 active_tasks_count=Count(
                     'tasks',
-                    filter=Q(tasks__status__in=['new', 'in_progress', 'pending']),
+                    filter=task_filter & Q(tasks__status__in=['new', 'in_progress', 'pending']),
                     distinct=True
                 ),
                 completed_tasks_count=Count(
                     'tasks',
-                    filter=Q(tasks__status='done'),
+                    filter=task_filter & Q(tasks__status='done'),
                     distinct=True
                 ),
                 overdue_tasks_count=Count(
                     'tasks',
-                    filter=Q(tasks__deadline__lt=timezone.now()) & ~Q(tasks__status='done'),
+                    filter=task_filter & Q(tasks__deadline__lt=timezone.now()) & ~Q(tasks__status='done'),
                     distinct=True
                 )
             ).order_by('name')
@@ -699,8 +1017,8 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 results.append({
                     'id': category.id,
                     'name': category.name,
-                    'description': getattr(category, 'description', ''),  # Безопасное получение
-                    'color': getattr(category, 'color', ''),  # Безопасное получение
+                    'description': getattr(category, 'description', ''),
+                    'color': getattr(category, 'color', ''),
                     'tasks_count': category.tasks_count,
                     'active_tasks_count': category.active_tasks_count,
                     'completed_tasks_count': category.completed_tasks_count,
@@ -726,171 +1044,13 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    def create(self, request, *args, **kwargs):
-        """Переопределяем создание для кастомного ответа и логирования"""
-        logger.info(f"User {request.user} creating new category: {request.data.get('name', 'Unknown')}")
-
-        serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            category = serializer.save()
-            response_serializer = CategorySerializer(category)
-
-            logger.info(f"Category '{category.name}' created successfully with ID: {category.id}")
-
-            return Response(
-                {
-                    'message': 'Категория успешно создана',
-                    'category': response_serializer.data
-                },
-                status=status.HTTP_201_CREATED
-            )
-
-        logger.warning(f"Failed to create category. Validation errors: {serializer.errors}")
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def update(self, request, *args, **kwargs):
-        """Переопределяем обновление для кастомного ответа и логирования"""
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-
-        logger.info(f"User {request.user} updating category '{instance.name}' (ID: {instance.id})")
-
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-
-        if serializer.is_valid():
-            updated_category = serializer.save()
-            response_serializer = CategorySerializer(updated_category)
-
-            logger.info(f"Category '{updated_category.name}' updated successfully")
-
-            return Response({
-                'message': 'Категория успешно обновлена',
-                'category': response_serializer.data
-            })
-
-        logger.warning(f"Failed to update category '{instance.name}'. Validation errors: {serializer.errors}")
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def destroy(self, request, *args, **kwargs):
-        """Переопределяем удаление для кастомного ответа и логирования"""
-        instance = self.get_object()
-        category_name = instance.name
-        category_id = instance.id
-
-        logger.info(f"User {request.user} attempting to delete category '{category_name}' (ID: {category_id})")
-
-        # Проверяем, есть ли связанные задачи
-        tasks_count = instance.tasks.count()
-        if tasks_count > 0:
-            logger.warning(f"Cannot delete category '{category_name}' - has {tasks_count} related tasks")
-            return Response({
-                'error': f'Нельзя удалить категорию "{category_name}", так как с ней связано {tasks_count} задач(и)'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Выполняем удаление (мягкое, если настроено)
-        self.perform_destroy(instance)
-
-        logger.info(f"Category '{category_name}' (ID: {category_id}) deleted successfully")
-
-        return Response({
-            'message': f'Категория "{category_name}" успешно удалена'
-        }, status=status.HTTP_204_NO_CONTENT)
-
-
-@api_view(['GET'])
-def task_statistics_view(request):
-    """
-    Агрегирующий эндпоинт для получения статистики задач.
-
-    GET /api/tasks/statistics/
-    """
-    logger.info(f"User {request.user} generating task statistics")
-
-    try:
-        # Общее количество задач
-        total_tasks = Task.objects.count()
-        logger.debug(f"Total tasks count: {total_tasks}")
-
-        # Количество задач по статусам
-        status_stats = Task.objects.values('status').annotate(count=Count('id'))
-        status_counts = {item['status']: item['count'] for item in status_stats}
-
-        # Все возможные статусы с нулевыми значениями по умолчанию
-        all_statuses = ['new', 'in_progress', 'pending', 'blocked', 'done']
-        status_breakdown = {status: status_counts.get(status, 0) for status in all_statuses}
-
-        # Просроченные задачи
-        overdue_tasks = Task.objects.filter(
-            deadline__lt=timezone.now()
-        ).exclude(status='done').count()
-
-        # Статистика по категориям
-        category_stats = Category.objects.annotate(
-            task_count=Count('tasks')
-        ).values('name', 'task_count')
-
-        # Статистика по подзадачам
-        total_subtasks = SubTask.objects.count()
-        subtask_status_stats = SubTask.objects.values('status').annotate(count=Count('id'))
-        subtask_status_counts = {item['status']: item['count'] for item in subtask_status_stats}
-        subtask_breakdown = {status: subtask_status_counts.get(status, 0) for status in all_statuses}
-
-        # Задачи без подзадач
-        tasks_without_subtasks = Task.objects.filter(subtasks__isnull=True).count()
-
-        # Средний процент выполнения задач
-        tasks_with_subtasks = Task.objects.filter(subtasks__isnull=False).distinct()
-        completion_rates = []
-        for task in tasks_with_subtasks:
-            total_subs = task.subtasks.count()
-            completed_subs = task.subtasks.filter(status='done').count()
-            if total_subs > 0:
-                completion_rates.append((completed_subs / total_subs) * 100)
-
-        avg_completion_rate = sum(completion_rates) / len(completion_rates) if completion_rates else 0
-
-        # Формирование ответа
-        statistics = {
-            'overview': {
-                'total_tasks': total_tasks,
-                'total_subtasks': total_subtasks,
-                'overdue_tasks': overdue_tasks,
-                'tasks_without_subtasks': tasks_without_subtasks,
-                'average_completion_rate': round(avg_completion_rate, 2)
-            },
-            'task_status_breakdown': status_breakdown,
-            'subtask_status_breakdown': subtask_breakdown,
-            'category_statistics': list(category_stats),
-            'completion_metrics': {
-                'completed_tasks': status_counts.get('done', 0),
-                'in_progress_tasks': status_counts.get('in_progress', 0),
-                'pending_tasks': status_counts.get('pending', 0),
-                'blocked_tasks': status_counts.get('blocked', 0),
-                'new_tasks': status_counts.get('new', 0)
-            }
-        }
-
-        logger.info("Task statistics generated successfully")
-        return Response(statistics)
-
-    except Exception as e:
-        logger.error(f"Error generating task statistics: {str(e)}", exc_info=True)
-        return Response(
-            {'error': 'Ошибка при генерации статистики задач'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
 
 @api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
 def bulk_update_subtasks_status(request):
     """
     Массовое обновление статуса подзадач.
-
-    POST /api/subtasks/bulk-update-status/
-    Body: {
-        "subtask_ids": [1, 2, 3],
-        "status": "done"
-    }
+    Пользователи могут обновлять только подзадачи своих задач.
     """
     logger.info(f"User {request.user} performing bulk update of subtasks status")
 
@@ -914,27 +1074,36 @@ def bulk_update_subtasks_status(request):
         )
 
     try:
-        # Проверяем, какие подзадачи существуют
-        existing_subtasks = SubTask.objects.filter(id__in=subtask_ids)
-        existing_ids = list(existing_subtasks.values_list('id', flat=True))
+        # Определяем доступные подзадачи в зависимости от роли
+        if request.user.is_staff:
+            available_subtasks = SubTask.objects.filter(id__in=subtask_ids)
+        else:
+            available_subtasks = SubTask.objects.filter(
+                id__in=subtask_ids,
+                task__created_by=request.user
+            )
 
-        if len(existing_ids) != len(subtask_ids):
-            missing_ids = set(subtask_ids) - set(existing_ids)
-            logger.warning(f"Some subtasks not found: {missing_ids}")
+        # Проверяем права доступа
+        if available_subtasks.count() != len(subtask_ids):
+            return Response(
+                {'error': 'У вас нет прав для изменения некоторых подзадач'},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
         # Выполняем обновление
-        updated_count = existing_subtasks.update(status=new_status)
+        updated_count = available_subtasks.update(status=new_status)
+        updated_ids = list(available_subtasks.values_list('id', flat=True))
 
-        logger.info(f"Successfully updated {updated_count} subtasks to status '{new_status}'")
+        logger.info(f"Successfully updated {updated_count} subtasks to status '{new_status}' by user {request.user}")
 
         return Response({
             'message': f'Статус {updated_count} подзадач обновлен на "{new_status}"',
             'updated_count': updated_count,
-            'updated_ids': existing_ids
+            'updated_ids': updated_ids
         })
 
     except Exception as e:
-        logger.error(f"Error during bulk update of subtasks: {str(e)}", exc_info=True)
+        logger.error(f"Error during bulk update of subtasks by user {request.user}: {str(e)}", exc_info=True)
         return Response(
             {'error': 'Ошибка при массовом обновлении подзадач'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
