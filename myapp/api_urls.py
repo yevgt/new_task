@@ -22,6 +22,15 @@ from .views import (
     weekday_info_view  # Новый эндпоинт для информации о днях недели
 )
 
+from .auth_views import (
+    UserRegistrationView,
+    CustomTokenObtainPairView,
+    CustomTokenRefreshView,
+    logout_view,
+    user_profile_view,
+    change_password_view,
+)
+
 # Создаем роутер для ViewSet
 router = DefaultRouter()
 router.register(r'categories', CategoryViewSet, basename='category')
@@ -47,4 +56,12 @@ urlpatterns = [
 
     # Дополнительные эндпоинты
     path('weekdays/', weekday_info_view, name='weekday-info'),
+
+# Аутентификация
+    path('auth/register/', UserRegistrationView.as_view(), name='user-register'),
+    path('auth/login/', CustomTokenObtainPairView.as_view(), name='token-obtain-pair'),
+    path('auth/refresh/', CustomTokenRefreshView.as_view(), name='token-refresh'),
+    path('auth/logout/', logout_view, name='user-logout'),
+    path('auth/profile/', user_profile_view, name='user-profile'),
+    path('auth/change-password/', change_password_view, name='change-password'),
 ]

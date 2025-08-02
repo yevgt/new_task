@@ -1,6 +1,11 @@
 import logging
 import time
 from django.utils.deprecation import MiddlewareMixin
+import jwt
+from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 logger = logging.getLogger('django.request')
 
@@ -57,3 +62,21 @@ class HTTPLoggingMiddleware(MiddlewareMixin):
             f"Error: {str(exception)} | Type: {type(exception).__name__}",
             exc_info=True
         )
+
+
+class JWTCookieMiddleware:
+    """Middleware для автоматического извлечения JWT из cookies"""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # Пытаемся получить токен из cookies
+        access_token = request.COOKIES.get('access_token')
+
+        if access_token and not request.META.get('HTTP_AUTHORIZATION'):
+            # Устанавливаем заголовок Authorization
+            request.META['HTTP_AUTHORIZATION'] = f'Bearer {access_token}'
+
+        response = self.get_response(request)
+        return response

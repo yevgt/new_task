@@ -28,7 +28,7 @@ class Category(models.Model):
         on_delete=models.CASCADE,
         related_name='owned_categories',
         verbose_name="Владелец",
-        # null=True, blank=True
+        null=True, blank=True
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
@@ -48,7 +48,10 @@ class Category(models.Model):
         unique_together = [['name', 'owner']] # Уникальность в рамках пользователя
 
     def __str__(self):
-        return f"{self.name} ({self.owner.username})"
+        # ИСПРАВЛЕНИЕ: проверяем существование owner
+        if self.owner:
+            return f"{self.name} ({self.owner.username})"
+        return self.name  # Fallback для категорий без владельца
 
     def delete(self, using=None, keep_parents=False):
         """Переопределяем метод удаления для мягкого удаления"""
@@ -95,7 +98,7 @@ class Task(models.Model):
         on_delete=models.CASCADE,
         related_name='owned_tasks',
         verbose_name="Владелец",
-        # null=True, blank=True
+        null=True, blank=True
     )
 
     # Добавляем поле владельца
@@ -194,7 +197,7 @@ class SubTask(models.Model):
         on_delete=models.CASCADE,
         related_name='owned_subtasks',
         verbose_name="Владелец",
-        # null=True, blank=True
+        null=True, blank=True
     )
 
     deadline = models.DateTimeField(verbose_name="Дедлайн")

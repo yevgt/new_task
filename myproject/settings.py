@@ -41,19 +41,23 @@ INSTALLED_APPS = [
     'django_filters',
     'rest_framework',
     'rest_framework_simplejwt',  # Добавляем SimpleJWT
+    'rest_framework_simplejwt.token_blacklist',  # Добавьте это
+    'corsheaders',
     'drf_yasg',
     'myapp.apps.MyappConfig',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'myapp.middleware.JWTCookieMiddleware',  # Добавьте это
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'myapp.middleware.HTTPLoggingMiddleware',  # Добавляем наш middleware
+    # 'myapp.middleware.HTTPLoggingMiddleware',  # Добавляем наш middleware
 ]
 
 ROOT_URLCONF = 'myproject.urls'
@@ -310,6 +314,12 @@ SIMPLE_JWT = {
     'SLIDING_TOKEN_LIFETIME': timedelta(minutes=60),
     'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
 }
+
+# Настройки cookies
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = True
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # Настройки Swagger
 SWAGGER_SETTINGS = {

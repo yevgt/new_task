@@ -5,10 +5,15 @@ from .models import Task, SubTask, Category
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ['name']
-    search_fields = ['name']
+    list_display = ['name', 'owner', 'created_at']
+    search_fields = ['name', 'description', 'owner']
     ordering = ['name']
     list_per_page = 25
+
+    def save_model(self, request, obj, form, change):
+        if not obj.owner:
+            obj.owner = request.user
+        super().save_model(request, obj, form, change)
 
 
 class SubTaskInline(admin.TabularInline):
@@ -27,14 +32,19 @@ class SubTaskInline(admin.TabularInline):
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
     """Административная панель для модели Task."""
-    list_display = ['title', 'status', 'deadline', 'created_at', 'is_overdue', 'categories_list']
-    list_filter = ['status', 'categories', 'created_at', 'deadline']
+    list_display = ['title', 'status','owner', 'deadline', 'created_at', 'is_overdue', 'categories_list']
+    list_filter = ['status', 'categories','owner', 'created_at', 'deadline']
     search_fields = ['title', 'description']
     filter_horizontal = ['categories']
     date_hierarchy = 'created_at'
     ordering = ['-created_at']
     inlines = [SubTaskInline] # Инлайн формы для подзадач
     list_per_page = 25
+
+    def save_model(self, request, obj, form, change):
+        if not obj.owner:
+            obj.owner = request.user
+        super().save_model(request, obj, form, change)
 
     fieldsets = (
         ('Основная информация', {
@@ -102,13 +112,18 @@ mark_as_done.short_description = "Пометить выбранные подза
 @admin.register(SubTask)
 class SubTaskAdmin(admin.ModelAdmin):
     """Административная панель для модели SubTask."""
-    list_display = ['title', 'task', 'status', 'deadline', 'created_at', 'is_overdue']
-    list_filter = ['status', 'task', 'created_at', 'deadline']
+    list_display = ['title', 'task', 'status', 'owner', 'deadline', 'created_at', 'is_overdue']
+    list_filter = ['status', 'task', 'owner', 'created_at', 'deadline']
     search_fields = ['title', 'description', 'task__title']
     date_hierarchy = 'created_at'
     ordering = ['-created_at']
     list_per_page = 25
     actions = [mark_as_done]  # Добавляем кастомный action
+
+    def save_model(self, request, obj, form, change):
+        if not obj.owner:
+            obj.owner = request.user
+        super().save_model(request, obj, form, change)
 
     fieldsets = (
         ('Основная информация', {
