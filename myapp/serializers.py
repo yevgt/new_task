@@ -4,12 +4,30 @@ from django.utils import timezone
 
 
 class CategorySerializer(serializers.ModelSerializer):
-    """Базовый сериализатор для модели Category."""
+    """
+    Сериализатор для чтения категорий.
+    Используется для list, retrieve и ответов после create/update.
+    """
+    tasks_count = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
+    updated_at = serializers.DateTimeField(format='%Y-%m-%d %H:%M:%S', read_only=True)
 
     class Meta:
         model = Category
-        fields = ['id', 'name']
+        fields = [
+            'id',
+            'name',
+            'description',
+            'color',
+            'created_at',
+            'updated_at',
+            'tasks_count'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'tasks_count']
 
+    def get_tasks_count(self, obj):
+        """Подсчет количества задач в категории"""
+        return obj.tasks.count() if hasattr(obj, 'tasks') else 0
 
 # Задание 2: CategoryCreateSerializer с переопределенными методами create и update
 class CategoryCreateSerializer(serializers.ModelSerializer):
@@ -17,7 +35,42 @@ class CategoryCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ['name']
+        fields = ['name', 'description', 'color']
+        extra_kwargs = {
+            'description': {'required': False, 'allow_blank': True},
+            'color': {'required': False, 'allow_blank': True},
+        }
+
+    def validate_name(self, value):
+        """Валидация названия категории"""
+        if not value or not value.strip():
+            raise serializers.ValidationError("Название категории не может быть пустым.")
+
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError("Название категории должно содержать минимум 2 символа.")
+
+        if len(value.strip()) > 100:
+            raise serializers.ValidationError("Название категории не может превышать 100 символов.")
+
+        return value.strip()
+
+    def validate_color(self, value):
+        """Валидация цвета в формате HEX"""
+        if value and value.strip():
+            value = value.strip()
+            if not value.startswith('#'):
+                value = '#' + value
+
+            if len(value) != 7:
+                raise serializers.ValidationError("Цвет должен быть в формате HEX (#RRGGBB).")
+
+            try:
+                int(value[1:], 16)  # Проверяем, что это валидный HEX
+            except ValueError:
+                raise serializers.ValidationError("Цвет должен содержать только валидные HEX символы.")
+
+            return value
+        return value
 
     def create(self, validated_data):
         """Переопределенный метод create с проверкой уникальности названия."""
@@ -52,6 +105,12 @@ class CategoryCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Название категории должно содержать минимум 2 символа.")
 
         return value.strip()
+
+    def to_representation(self, instance):
+        """
+        Возвращаем полное представление объекта после создания/обновления
+        """
+        return CategorySerializer(instance, context=self.context).data
 
 
 # Задание 1: SubTaskCreateSerializer с переопределением поля created_at

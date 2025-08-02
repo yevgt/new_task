@@ -21,6 +21,9 @@ from .serializers import (
     SubTaskSerializer,
     SubTaskUpdateSerializer
 )
+import logging
+
+logger = logging.getLogger('myapp')
 
 
 # Существующие представления для веб-интерфейса
@@ -134,6 +137,16 @@ class TaskListCreateAPIView(generics.ListCreateAPIView):
                 },
                 status=status.HTTP_201_CREATED
             )
+
+        logger.info(f"User {request.user} creating new task: {request.data.get('title', 'Unknown')}")
+        try:
+            response = super().create(request, *args, **kwargs)
+            logger.info(f"Task created successfully with ID: {response.data.get('task', {}).get('id', 'Unknown')}")
+            return response
+        except Exception as e:
+            logger.error(f"Error creating task: {str(e)}", exc_info=True)
+            raise
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         def list(self, request, *args, **kwargs):
@@ -187,6 +200,12 @@ class TaskListCreateAPIView(generics.ListCreateAPIView):
             'count': queryset.count(),
             'results': serializer.data
         })
+
+        logger.info(f"User {request.user} requested task list")
+        response = super().list(request, *args, **kwargs)
+        logger.info(f"Returned {len(response.data.get('results', []))} tasks")
+        return response
+
 
 class TaskRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
     """
@@ -617,6 +636,7 @@ def task_statistics_view(request):
 
     return Response(statistics)
 
+
 class CategoryViewSet(viewsets.ModelViewSet):
     """
     ViewSet для CRUD операций с категориями.
@@ -637,6 +657,12 @@ class CategoryViewSet(viewsets.ModelViewSet):
             return CategoryCreateSerializer
         return CategorySerializer
 
+    def list(self, request, *args, **kwargs):
+        logger.info(f"User {request.user} requesting category list")
+        response = super().list(request, *args, **kwargs)
+        logger.info(f"Returned {len(response.data.get('results', []))} categories")
+        return response
+
     @action(detail=False, methods=['get'])
     def count_tasks(self, request):
         """
@@ -646,47 +672,71 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
         Возвращает список категорий с количеством связанных задач.
         """
-        categories_with_counts = Category.objects.annotate(
-            tasks_count=Count('tasks', distinct=True),
-            active_tasks_count=Count('tasks', filter=Q(tasks__status__in=['new', 'in_progress', 'pending']),
-                                     distinct=True),
-            completed_tasks_count=Count('tasks', filter=Q(tasks__status='done'), distinct=True),
-            overdue_tasks_count=Count(
-                'tasks',
-                filter=Q(tasks__deadline__lt=timezone.now()) & ~Q(tasks__status='done'),
-                distinct=True
-            )
-        ).order_by('name')
+        logger.info(f"User {request.user} generating task statistics for categories")
 
-        results = []
-        for category in categories_with_counts:
-            results.append({
-                'id': category.id,
-                'name': category.name,
-                'description': category.description,
-                'color': getattr(category, 'color', None),  # Если есть поле color
-                'tasks_count': category.tasks_count,
-                'active_tasks_count': category.active_tasks_count,
-                'completed_tasks_count': category.completed_tasks_count,
-                'overdue_tasks_count': category.overdue_tasks_count,
-                'completion_percentage': round(
-                    (category.completed_tasks_count / category.tasks_count * 100)
-                    if category.tasks_count > 0 else 0, 2
+        try:
+            categories_with_counts = Category.objects.annotate(
+                tasks_count=Count('tasks', distinct=True),
+                active_tasks_count=Count(
+                    'tasks',
+                    filter=Q(tasks__status__in=['new', 'in_progress', 'pending']),
+                    distinct=True
+                ),
+                completed_tasks_count=Count(
+                    'tasks',
+                    filter=Q(tasks__status='done'),
+                    distinct=True
+                ),
+                overdue_tasks_count=Count(
+                    'tasks',
+                    filter=Q(tasks__deadline__lt=timezone.now()) & ~Q(tasks__status='done'),
+                    distinct=True
                 )
+            ).order_by('name')
+
+            results = []
+            for category in categories_with_counts:
+                results.append({
+                    'id': category.id,
+                    'name': category.name,
+                    'description': getattr(category, 'description', ''),  # Безопасное получение
+                    'color': getattr(category, 'color', ''),  # Безопасное получение
+                    'tasks_count': category.tasks_count,
+                    'active_tasks_count': category.active_tasks_count,
+                    'completed_tasks_count': category.completed_tasks_count,
+                    'overdue_tasks_count': category.overdue_tasks_count,
+                    'completion_percentage': round(
+                        (category.completed_tasks_count / category.tasks_count * 100)
+                        if category.tasks_count > 0 else 0, 2
+                    )
+                })
+
+            logger.info(f"Category statistics generated successfully. Total categories: {len(results)}")
+
+            return Response({
+                'message': 'Статистика задач по категориям',
+                'total_categories': len(results),
+                'categories': results
             })
 
-        return Response({
-            'message': 'Статистика задач по категориям',
-            'total_categories': len(results),
-            'categories': results
-        })
+        except Exception as e:
+            logger.error(f"Error generating category statistics: {str(e)}", exc_info=True)
+            return Response(
+                {'error': 'Ошибка при генерации статистики категорий'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     def create(self, request, *args, **kwargs):
-        """Переопределяем создание для кастомного ответа"""
+        """Переопределяем создание для кастомного ответа и логирования"""
+        logger.info(f"User {request.user} creating new category: {request.data.get('name', 'Unknown')}")
+
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             category = serializer.save()
             response_serializer = CategorySerializer(category)
+
+            logger.info(f"Category '{category.name}' created successfully with ID: {category.id}")
+
             return Response(
                 {
                     'message': 'Категория успешно создана',
@@ -694,39 +744,142 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_201_CREATED
             )
+
+        logger.warning(f"Failed to create category. Validation errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def update(self, request, *args, **kwargs):
-        """Переопределяем обновление для кастомного ответа"""
+        """Переопределяем обновление для кастомного ответа и логирования"""
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
+
+        logger.info(f"User {request.user} updating category '{instance.name}' (ID: {instance.id})")
+
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
 
         if serializer.is_valid():
             updated_category = serializer.save()
             response_serializer = CategorySerializer(updated_category)
+
+            logger.info(f"Category '{updated_category.name}' updated successfully")
+
             return Response({
                 'message': 'Категория успешно обновлена',
                 'category': response_serializer.data
             })
+
+        logger.warning(f"Failed to update category '{instance.name}'. Validation errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, *args, **kwargs):
-        """Переопределяем удаление для кастомного ответа"""
+        """Переопределяем удаление для кастомного ответа и логирования"""
         instance = self.get_object()
         category_name = instance.name
-        tasks_count = instance.tasks.count()
+        category_id = instance.id
+
+        logger.info(f"User {request.user} attempting to delete category '{category_name}' (ID: {category_id})")
 
         # Проверяем, есть ли связанные задачи
+        tasks_count = instance.tasks.count()
         if tasks_count > 0:
+            logger.warning(f"Cannot delete category '{category_name}' - has {tasks_count} related tasks")
             return Response({
                 'error': f'Нельзя удалить категорию "{category_name}", так как с ней связано {tasks_count} задач(и)'
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        # Выполняем удаление (мягкое, если настроено)
         self.perform_destroy(instance)
+
+        logger.info(f"Category '{category_name}' (ID: {category_id}) deleted successfully")
+
         return Response({
             'message': f'Категория "{category_name}" успешно удалена'
         }, status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['GET'])
+def task_statistics_view(request):
+    """
+    Агрегирующий эндпоинт для получения статистики задач.
+
+    GET /api/tasks/statistics/
+    """
+    logger.info(f"User {request.user} generating task statistics")
+
+    try:
+        # Общее количество задач
+        total_tasks = Task.objects.count()
+        logger.debug(f"Total tasks count: {total_tasks}")
+
+        # Количество задач по статусам
+        status_stats = Task.objects.values('status').annotate(count=Count('id'))
+        status_counts = {item['status']: item['count'] for item in status_stats}
+
+        # Все возможные статусы с нулевыми значениями по умолчанию
+        all_statuses = ['new', 'in_progress', 'pending', 'blocked', 'done']
+        status_breakdown = {status: status_counts.get(status, 0) for status in all_statuses}
+
+        # Просроченные задачи
+        overdue_tasks = Task.objects.filter(
+            deadline__lt=timezone.now()
+        ).exclude(status='done').count()
+
+        # Статистика по категориям
+        category_stats = Category.objects.annotate(
+            task_count=Count('tasks')
+        ).values('name', 'task_count')
+
+        # Статистика по подзадачам
+        total_subtasks = SubTask.objects.count()
+        subtask_status_stats = SubTask.objects.values('status').annotate(count=Count('id'))
+        subtask_status_counts = {item['status']: item['count'] for item in subtask_status_stats}
+        subtask_breakdown = {status: subtask_status_counts.get(status, 0) for status in all_statuses}
+
+        # Задачи без подзадач
+        tasks_without_subtasks = Task.objects.filter(subtasks__isnull=True).count()
+
+        # Средний процент выполнения задач
+        tasks_with_subtasks = Task.objects.filter(subtasks__isnull=False).distinct()
+        completion_rates = []
+        for task in tasks_with_subtasks:
+            total_subs = task.subtasks.count()
+            completed_subs = task.subtasks.filter(status='done').count()
+            if total_subs > 0:
+                completion_rates.append((completed_subs / total_subs) * 100)
+
+        avg_completion_rate = sum(completion_rates) / len(completion_rates) if completion_rates else 0
+
+        # Формирование ответа
+        statistics = {
+            'overview': {
+                'total_tasks': total_tasks,
+                'total_subtasks': total_subtasks,
+                'overdue_tasks': overdue_tasks,
+                'tasks_without_subtasks': tasks_without_subtasks,
+                'average_completion_rate': round(avg_completion_rate, 2)
+            },
+            'task_status_breakdown': status_breakdown,
+            'subtask_status_breakdown': subtask_breakdown,
+            'category_statistics': list(category_stats),
+            'completion_metrics': {
+                'completed_tasks': status_counts.get('done', 0),
+                'in_progress_tasks': status_counts.get('in_progress', 0),
+                'pending_tasks': status_counts.get('pending', 0),
+                'blocked_tasks': status_counts.get('blocked', 0),
+                'new_tasks': status_counts.get('new', 0)
+            }
+        }
+
+        logger.info("Task statistics generated successfully")
+        return Response(statistics)
+
+    except Exception as e:
+        logger.error(f"Error generating task statistics: {str(e)}", exc_info=True)
+        return Response(
+            {'error': 'Ошибка при генерации статистики задач'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
 
 @api_view(['POST'])
 def bulk_update_subtasks_status(request):
@@ -739,27 +892,53 @@ def bulk_update_subtasks_status(request):
         "status": "done"
     }
     """
+    logger.info(f"User {request.user} performing bulk update of subtasks status")
+
     subtask_ids = request.data.get('subtask_ids', [])
     new_status = request.data.get('status')
 
+    # Валидация входных данных
     if not subtask_ids or not new_status:
+        logger.warning(f"Bulk update failed: missing subtask_ids or status")
         return Response(
             {'error': 'Необходимо указать subtask_ids и status'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if new_status not in ['new', 'in_progress', 'pending', 'blocked', 'done']:
+    valid_statuses = ['new', 'in_progress', 'pending', 'blocked', 'done']
+    if new_status not in valid_statuses:
+        logger.warning(f"Bulk update failed: invalid status '{new_status}'")
         return Response(
-            {'error': 'Неверный статус'},
+            {'error': f'Неверный статус. Допустимые значения: {", ".join(valid_statuses)}'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    updated_count = SubTask.objects.filter(id__in=subtask_ids).update(status=new_status)
+    try:
+        # Проверяем, какие подзадачи существуют
+        existing_subtasks = SubTask.objects.filter(id__in=subtask_ids)
+        existing_ids = list(existing_subtasks.values_list('id', flat=True))
 
-    return Response({
-        'message': f'Статус {updated_count} подзадач обновлен на "{new_status}"',
-        'updated_count': updated_count
-    })
+        if len(existing_ids) != len(subtask_ids):
+            missing_ids = set(subtask_ids) - set(existing_ids)
+            logger.warning(f"Some subtasks not found: {missing_ids}")
+
+        # Выполняем обновление
+        updated_count = existing_subtasks.update(status=new_status)
+
+        logger.info(f"Successfully updated {updated_count} subtasks to status '{new_status}'")
+
+        return Response({
+            'message': f'Статус {updated_count} подзадач обновлен на "{new_status}"',
+            'updated_count': updated_count,
+            'updated_ids': existing_ids
+        })
+
+    except Exception as e:
+        logger.error(f"Error during bulk update of subtasks: {str(e)}", exc_info=True)
+        return Response(
+            {'error': 'Ошибка при массовом обновлении подзадач'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 @api_view(['GET'])

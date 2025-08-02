@@ -5,6 +5,10 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Создаем папку для логов, если она не существует
+LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(exist_ok=True)
+
 env = environ.Env(
     DEBUG=(bool, False),
     MYSQL=(bool, False)
@@ -46,6 +50,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'myapp.middleware.HTTPLoggingMiddleware',  # Добавляем наш middleware
 ]
 
 ROOT_URLCONF = 'myproject.urls'
@@ -142,7 +147,7 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.AllowAny',  # Для разработки
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 20,
+    'PAGE_SIZE': 6,
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
@@ -153,3 +158,114 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',  # Это нужно для веб-интерфейса
     ],
 }
+
+# Настройки логирования
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} {name} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '[{levelname}] {asctime} {message}',
+            'style': '{',
+        },
+        'http_format': {
+            'format': '[{asctime}] {levelname} - {message}',
+            'style': '{',
+        },
+        'db_format': {
+            'format': '[{asctime}] {levelname} - Duration: {duration:.3f}s | {sql}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
+    'handlers': {
+        # Консольный вывод для сервера
+        'console': {
+            'level': 'INFO',
+            'filters': ['require_debug_true'],
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        # HTTP логи в файл
+        'http_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'http_logs.log',
+            'maxBytes': 1024*1024*10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'http_format',
+        },
+        # Логи базы данных в файл
+        'db_file': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'db_logs.log',
+            'maxBytes': 1024*1024*10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        # Общие логи сервера в файл
+        'server_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'server.log',
+            'maxBytes': 1024*1024*10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        # Основной логгер Django
+        'django': {
+            'handlers': ['console', 'server_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Логгер для запросов в базу данных
+        'django.db.backends': {
+            'handlers': ['db_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # Логгер для HTTP запросов
+        'django.request': {
+            'handlers': ['http_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Логгер для сервера разработки
+        'django.server': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Логгер для вашего приложения
+        'myapp': {
+            'handlers': ['console', 'server_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # Root логгер
+        'root': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+        },
+    },
+}
+
+# Включить логирование SQL запросов только в режиме разработки
+if DEBUG:
+    LOGGING['loggers']['django.db.backends']['level'] = 'DEBUG'
+else:
+    LOGGING['loggers']['django.db.backends']['level'] = 'INFO'
