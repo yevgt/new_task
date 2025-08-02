@@ -1,8 +1,8 @@
 from django.http import HttpResponse
 from django.shortcuts import render, get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import generics, status, filters, permissions
-from rest_framework.decorators import api_view
+from rest_framework import generics, status, filters, permissions, viewsets
+from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
@@ -511,40 +511,40 @@ class SubTaskRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView)
         }, status=status.HTTP_204_NO_CONTENT)
 
 
-# Представления для работы с категориями
-class CategoryListCreateAPIView(generics.ListCreateAPIView):
-    """
-    Эндпоинт для получения списка категорий и создания новых.
-
-    GET /api/categories/
-    POST /api/categories/
-    """
-    queryset = Category.objects.all()
-
-    def get_serializer_class(self):
-        if self.request.method == 'POST':
-            return CategoryCreateSerializer
-        return CategorySerializer
-
-
-class CategoryRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    Эндпоинт для получения, обновления и удаления категории.
-
-    GET /api/categories/{id}/
-    PUT /api/categories/{id}/
-    PATCH /api/categories/{id}/
-    DELETE /api/categories/{id}/
-    """
-    queryset = Category.objects.all()
-    lookup_field = 'id'
-
-    def get_serializer_class(self):
-        if self.request.method in ['PUT', 'PATCH']:
-            return CategoryCreateSerializer
-        return CategorySerializer
-
-
+# # Представления для работы с категориями
+# class CategoryListCreateAPIView(generics.ListCreateAPIView):
+#     """
+#     Эндпоинт для получения списка категорий и создания новых.
+#
+#     GET /api/categories/
+#     POST /api/categories/
+#     """
+#     queryset = Category.objects.all()
+#
+#     def get_serializer_class(self):
+#         if self.request.method == 'POST':
+#             return CategoryCreateSerializer
+#         return CategorySerializer
+#
+#
+# class CategoryRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
+#     """
+#     Эндпоинт для получения, обновления и удаления категории.
+#
+#     GET /api/categories/{id}/
+#     PUT /api/categories/{id}/
+#     PATCH /api/categories/{id}/
+#     DELETE /api/categories/{id}/
+#     """
+#     queryset = Category.objects.all()
+#     lookup_field = 'id'
+#
+#     def get_serializer_class(self):
+#         if self.request.method in ['PUT', 'PATCH']:
+#             return CategoryCreateSerializer
+#         return CategorySerializer
+#
+#
 # Функциональные представления и дополнительные эндпоинты
 @api_view(['GET'])
 def task_statistics_view(request):
@@ -617,6 +617,116 @@ def task_statistics_view(request):
 
     return Response(statistics)
 
+class CategoryViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet для CRUD операций с категориями.
+
+    list: GET /api/categories/ - получить список всех категорий
+    create: POST /api/categories/ - создать новую категорию
+    retrieve: GET /api/categories/{id}/ - получить конкретную категорию
+    update: PUT /api/categories/{id}/ - полностью обновить категорию
+    partial_update: PATCH /api/categories/{id}/ - частично обновить категорию
+    destroy: DELETE /api/categories/{id}/ - удалить категорию
+    count_tasks: GET /api/categories/count_tasks/ - подсчет задач для всех категорий
+    """
+    queryset = Category.objects.all()
+    lookup_field = 'id'
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return CategoryCreateSerializer
+        return CategorySerializer
+
+    @action(detail=False, methods=['get'])
+    def count_tasks(self, request):
+        """
+        Кастомный метод для подсчета количества задач, связанных с каждой категорией.
+
+        GET /api/categories/count_tasks/
+
+        Возвращает список категорий с количеством связанных задач.
+        """
+        categories_with_counts = Category.objects.annotate(
+            tasks_count=Count('tasks', distinct=True),
+            active_tasks_count=Count('tasks', filter=Q(tasks__status__in=['new', 'in_progress', 'pending']),
+                                     distinct=True),
+            completed_tasks_count=Count('tasks', filter=Q(tasks__status='done'), distinct=True),
+            overdue_tasks_count=Count(
+                'tasks',
+                filter=Q(tasks__deadline__lt=timezone.now()) & ~Q(tasks__status='done'),
+                distinct=True
+            )
+        ).order_by('name')
+
+        results = []
+        for category in categories_with_counts:
+            results.append({
+                'id': category.id,
+                'name': category.name,
+                'description': category.description,
+                'color': getattr(category, 'color', None),  # Если есть поле color
+                'tasks_count': category.tasks_count,
+                'active_tasks_count': category.active_tasks_count,
+                'completed_tasks_count': category.completed_tasks_count,
+                'overdue_tasks_count': category.overdue_tasks_count,
+                'completion_percentage': round(
+                    (category.completed_tasks_count / category.tasks_count * 100)
+                    if category.tasks_count > 0 else 0, 2
+                )
+            })
+
+        return Response({
+            'message': 'Статистика задач по категориям',
+            'total_categories': len(results),
+            'categories': results
+        })
+
+    def create(self, request, *args, **kwargs):
+        """Переопределяем создание для кастомного ответа"""
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            category = serializer.save()
+            response_serializer = CategorySerializer(category)
+            return Response(
+                {
+                    'message': 'Категория успешно создана',
+                    'category': response_serializer.data
+                },
+                status=status.HTTP_201_CREATED
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, *args, **kwargs):
+        """Переопределяем обновление для кастомного ответа"""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+
+        if serializer.is_valid():
+            updated_category = serializer.save()
+            response_serializer = CategorySerializer(updated_category)
+            return Response({
+                'message': 'Категория успешно обновлена',
+                'category': response_serializer.data
+            })
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, *args, **kwargs):
+        """Переопределяем удаление для кастомного ответа"""
+        instance = self.get_object()
+        category_name = instance.name
+        tasks_count = instance.tasks.count()
+
+        # Проверяем, есть ли связанные задачи
+        if tasks_count > 0:
+            return Response({
+                'error': f'Нельзя удалить категорию "{category_name}", так как с ней связано {tasks_count} задач(и)'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        self.perform_destroy(instance)
+        return Response({
+            'message': f'Категория "{category_name}" успешно удалена'
+        }, status=status.HTTP_204_NO_CONTENT)
 
 @api_view(['POST'])
 def bulk_update_subtasks_status(request):

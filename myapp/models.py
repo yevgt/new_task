@@ -1,10 +1,36 @@
 from django.db import models
 from django.utils import timezone
 
+class CategoryManager(models.Manager):
+    """
+    Кастомный менеджер для модели Category с поддержкой мягкого удаления
+    """
+    def get_queryset(self):
+        """Переопределяем get_queryset для исключения удаленных записей по умолчанию"""
+        return super().get_queryset().filter(is_deleted=False)
+
+    def all_with_deleted(self):
+        """Метод для получения всех записей, включая удаленные"""
+        return super().get_queryset()
+
+    def deleted_only(self):
+        """Метод для получения только удаленных записей"""
+        return super().get_queryset().filter(is_deleted=True)
 
 class Category(models.Model):
     """Категория выполнения."""
     name = models.CharField(max_length=100, unique=True, verbose_name="Название категории")
+    description = models.TextField(blank=True, verbose_name="Описание")  # Добавьте это поле
+    color = models.CharField(max_length=7, blank=True, verbose_name="Цвет", help_text="Цвет в формате HEX")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
+
+    # Поля для мягкого удаления
+    is_deleted = models.BooleanField(default=False, verbose_name="Удалено")
+    deleted_at = models.DateTimeField(null=True, blank=True, verbose_name="Дата удаления")
+
+    # Используем кастомный менеджер
+    objects = CategoryManager()
 
     class Meta:
         db_table = 'task_manager_category'
@@ -14,6 +40,22 @@ class Category(models.Model):
 
     def __str__(self):
         return self.name
+
+    def delete(self, using=None, keep_parents=False):
+        """Переопределяем метод удаления для мягкого удаления"""
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.save(using=using)
+
+    def hard_delete(self):
+        """Метод для полного удаления записи из базы данных"""
+        super().delete()
+
+    def restore(self):
+        """Метод для восстановления удаленной записи"""
+        self.is_deleted = False
+        self.deleted_at = None
+        self.save()
 
 
 class Task(models.Model):

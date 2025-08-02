@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from .views import (
     # TaskCreateAPIView,
     # TaskListAPIView,
@@ -7,9 +8,10 @@ from .views import (
     # TaskDetailAPIView,
     TaskRetrieveUpdateDestroyAPIView,
 
-    CategoryListCreateAPIView,
+    #CategoryListCreateAPIView,
     # CategoryDetailAPIView,
-    CategoryRetrieveUpdateDestroyAPIView,
+    #CategoryRetrieveUpdateDestroyAPIView,
+    CategoryViewSet,  # Заменяем старые представления на ViewSet
 
     # SubTaskListCreateView,
     SubTaskListCreateAPIView,
@@ -19,6 +21,10 @@ from .views import (
     bulk_update_subtasks_status,
     weekday_info_view  # Новый эндпоинт для информации о днях недели
 )
+
+# Создаем роутер для ViewSet
+router = DefaultRouter()
+router.register(r'categories', CategoryViewSet, basename='category')
 
 urlpatterns = [
     # Эндпоинты для задач
@@ -34,8 +40,10 @@ urlpatterns = [
     path('subtasks/bulk-update-status/', bulk_update_subtasks_status, name='subtask-bulk-update'),
 
     # Эндпоинты для категорий
-    path('categories/', CategoryListCreateAPIView.as_view(), name='category-list-create'),
-    path('categories/<int:id>/', CategoryRetrieveUpdateDestroyAPIView.as_view(), name='category-detail'),
+    # path('categories/', CategoryListCreateAPIView.as_view(), name='category-list-create'),
+    # path('categories/<int:id>/', CategoryRetrieveUpdateDestroyAPIView.as_view(), name='category-detail'),
+    # Включаем маршруты для CategoryViewSet
+    path('', include(router.urls)),
 
     # Дополнительные эндпоинты
     path('weekdays/', weekday_info_view, name='weekday-info'),
