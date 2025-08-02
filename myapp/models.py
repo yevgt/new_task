@@ -224,3 +224,48 @@ class SubTask(models.Model):
         if len(self.title) > 10:
             return f"{self.title[:10]}..."
         return self.title
+
+
+class StatusChangeNotification(models.Model):
+    """Модель для отслеживания отправленных уведомлений о смене статуса"""
+
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name='status_notifications',
+        verbose_name="Task"  # Используем английский
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        verbose_name="User"  # Используем английский
+    )
+    old_status = models.CharField(
+        max_length=20,
+        verbose_name="Old Status",  # Используем английский
+        blank=True
+    )
+    new_status = models.CharField(
+        max_length=20,
+        verbose_name="New Status"  # Используем английский
+    )
+    notification_type = models.CharField(
+        max_length=50,
+        choices=[
+            ('status_change', 'Status Change'),
+            ('task_completed', 'Task Completed'),
+            ('status_reverted', 'Status Reverted'),
+        ],
+        default='status_change',
+        verbose_name="Notification Type"  # Используем английский
+    )
+    sent_at = models.DateTimeField(auto_now_add=True, verbose_name="Sent At")
+    email_sent = models.BooleanField(default=False, verbose_name="Email Sent")
+
+    class Meta:
+        verbose_name = "Status Change Notification"  # Английский
+        verbose_name_plural = "Status Change Notifications"  # Английский
+        ordering = ['-sent_at']
+
+    def __str__(self):
+        return f"Notification {self.user.username} - {self.task.title} ({self.old_status} -> {self.new_status})"

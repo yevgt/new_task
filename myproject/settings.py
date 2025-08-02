@@ -172,106 +172,52 @@ REST_FRAMEWORK = {
 }
 
 # Настройки логирования
+# ИСПРАВЛЕНИЕ ЛОГИРОВАНИЯ ДЛЯ WINDOWS
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '[{levelname}] {asctime} {name} {process:d} {thread:d} {message}',
+            'format': '[{levelname}] {asctime} {name} {message}',
             'style': '{',
         },
         'simple': {
-            'format': '[{levelname}] {asctime} {message}',
+            'format': '[{levelname}] {message}',
             'style': '{',
-        },
-        'http_format': {
-            'format': '[{asctime}] {levelname} - {message}',
-            'style': '{',
-        },
-        'db_format': {
-            'format': '[{asctime}] {levelname} - Duration: {duration:.3f}s | {sql}',
-            'style': '{',
-        },
-    },
-    'filters': {
-        'require_debug_false': {
-            '()': 'django.utils.log.RequireDebugFalse',
-        },
-        'require_debug_true': {
-            '()': 'django.utils.log.RequireDebugTrue',
         },
     },
     'handlers': {
-        # Консольный вывод для сервера
         'console': {
-            'level': 'INFO',
-            'filters': ['require_debug_true'],
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
+            'stream': 'ext://sys.stdout',  # Явно указываем stdout
         },
-        # HTTP логи в файл
-        'http_file': {
-            'level': 'INFO',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': LOGS_DIR / 'http_logs.log',
-            'maxBytes': 1024*1024*10,  # 10 MB
-            'backupCount': 5,
-            'formatter': 'http_format',
-        },
-        # Логи базы данных в файл
-        'db_file': {
-            'level': 'DEBUG',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': LOGS_DIR / 'db_logs.log',
-            'maxBytes': 1024*1024*10,  # 10 MB
-            'backupCount': 5,
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'django.log',
             'formatter': 'verbose',
-        },
-        # Общие логи сервера в файл
-        'server_file': {
-            'level': 'INFO',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': LOGS_DIR / 'server.log',
-            'maxBytes': 1024*1024*10,  # 10 MB
-            'backupCount': 5,
-            'formatter': 'verbose',
+            'encoding': 'utf-8',  # Принудительно UTF-8
         },
     },
+    'root': {
+        'handlers': ['file'],  # Используем файл вместо консоли
+        'level': 'WARNING',
+    },
     'loggers': {
-        # Основной логгер Django
-        'django': {
-            'handlers': ['console', 'server_file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        # Логгер для запросов в базу данных
-        'django.db.backends': {
-            'handlers': ['db_file'],
-            'level': 'DEBUG',
-            'propagate': False,
-        },
-        # Логгер для HTTP запросов
-        'django.request': {
-            'handlers': ['http_file', 'console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        # Логгер для сервера разработки
-        'django.server': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        # Логгер для вашего приложения
         'myapp': {
-            'handlers': ['console', 'server_file'],
-            'level': 'DEBUG',
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
             'propagate': False,
         },
-        # Root логгер
-        'root': {
+        'django.core.mail': {
             'handlers': ['console'],
-            'level': 'WARNING',
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['file'],  # БД логи только в файл
+            'level': 'ERROR',
+            'propagate': False,
         },
     },
 }
@@ -335,3 +281,16 @@ SWAGGER_SETTINGS = {
 REDOC_SETTINGS = {
     'LAZY_RENDERING': False,
 }
+
+# Email настройки для разработки
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+EMAIL_HOST = 'localhost'
+EMAIL_PORT = 1025
+EMAIL_HOST_USER = ''
+EMAIL_HOST_PASSWORD = ''
+EMAIL_USE_TLS = False
+DEFAULT_FROM_EMAIL = 'yev.guta@gmail.com'
+
+# Настройки уведомлений
+NOTIFICATIONS_ENABLED = True
+NOTIFICATION_COOLDOWN_MINUTES = 30  # Минуты между повторными уведомлениями

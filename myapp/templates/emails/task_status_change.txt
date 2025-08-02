@@ -1,0 +1,22 @@
+{% if notification_type == 'task_completed' %}🎉 ЗАДАЧА ЗАВЕРШЕНА!{% elif notification_type == 'status_reverted' %}🔄 СТАТУС ЗАДАЧИ ИЗМЕНЕН{% else %}📝 ОБНОВЛЕНИЕ ЗАДАЧИ{% endif %}
+
+Привет, {{ user.first_name|default:user.username }}!
+
+{% if notification_type == 'task_completed' %}Отличные новости! Ваша задача была успешно завершена.{% elif notification_type == 'status_reverted' %}Статус вашей задачи был изменен обратно из "Завершено".{% else %}Статус вашей задачи был обновлен.{% endif %}
+
+=== ДЕТАЛИ ЗАДАЧИ ===
+Название: {{ task.title }}
+{% if task.description %}Описание: {{ task.description|truncatewords:30 }}{% endif %}
+
+Изменение статуса:
+{% if old_status %}{{ old_status_display }} → {% endif %}{{ new_status_display }}
+
+Дедлайн: {{ task.deadline|date:"d.m.Y H:i" }}
+{% if task.categories.exists %}Категории: {% for category in task.categories.all %}{{ category.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}
+Обновлено: {{ task.updated_at|date:"d.m.Y H:i" }}
+
+Просмотреть задачу: {{ site_url }}/api/tasks/{{ task.id }}/
+
+---
+Это автоматическое уведомление от вашей системы управления задачами.
+Если у вас есть вопросы, обратитесь к администратору.

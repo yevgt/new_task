@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Task, SubTask, Category
+from .models import Task, SubTask, Category, StatusChangeNotification
 
 
 @admin.register(Category)
@@ -204,3 +204,14 @@ class TaskAutocompleteAdmin(admin.ModelAdmin):
 # Переопределяем регистрацию Task для поддержки автозаполнения
 admin.site.unregister(Task)
 admin.site.register(Task, TaskAdmin)
+
+
+@admin.register(StatusChangeNotification)
+class StatusChangeNotificationAdmin(admin.ModelAdmin):
+    list_display = ['task', 'user', 'old_status', 'new_status', 'notification_type', 'email_sent', 'sent_at']
+    list_filter = ['notification_type', 'email_sent', 'sent_at', 'new_status']
+    search_fields = ['task__title', 'user__username', 'user__email']
+    readonly_fields = ['sent_at']
+
+    def has_add_permission(self, request):
+        return False  # Не разрешаем создавать уведомления вручную
