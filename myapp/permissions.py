@@ -12,12 +12,8 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
             return True
 
         # Права на запись только для владельца объекта
-        if hasattr(obj, 'created_by'):
-            return obj.created_by == request.user
-        elif hasattr(obj, 'user'):
-            return obj.user == request.user
-        elif hasattr(obj, 'author'):
-            return obj.author == request.user
+        if hasattr(obj, 'owner'):
+            return obj.owner == request.user
 
         # Если нет поля владельца, разрешаем всем аутентифицированным пользователям
         return request.user and request.user.is_authenticated
@@ -65,3 +61,30 @@ class IsAuthenticatedOrCreateOnly(permissions.BasePermission):
         if request.method == 'POST':  # Создание аккаунта
             return True
         return request.user and request.user.is_authenticated
+
+
+class IsOwner(permissions.BasePermission):
+    """
+    Пользовательский пермишен, который позволяет доступ только владельцам объекта.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        return obj.owner == request.user
+
+
+class IsTaskOwnerOrReadOnly(permissions.BasePermission):
+    """
+    Пермишен для подзадач: проверяет владельца основной задачи.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        # Безопасные методы разрешены всем аутентифицированным пользователям
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
+        # Для подзадач проверяем владельца основной задачи
+        if hasattr(obj, 'task'):
+            return obj.task.owner == request.user
+
+        # Для задач проверяем владельца
+        return obj.owner == request.user

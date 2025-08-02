@@ -23,6 +23,13 @@ class Category(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="Название категории")
     description = models.TextField(blank=True, verbose_name="Описание")  # Добавьте это поле
     color = models.CharField(max_length=7, blank=True, verbose_name="Цвет", help_text="Цвет в формате HEX")
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='owned_categories',
+        verbose_name="Владелец",
+        # null=True, blank=True
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
 
@@ -37,10 +44,11 @@ class Category(models.Model):
         db_table = 'task_manager_category'
         verbose_name = "Category"
         verbose_name_plural = "Categories"
-        unique_together = [['name']]
+        ordering = ['name']
+        unique_together = [['name', 'owner']] # Уникальность в рамках пользователя
 
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.owner.username})"
 
     def delete(self, using=None, keep_parents=False):
         """Переопределяем метод удаления для мягкого удаления"""
@@ -72,12 +80,7 @@ class Task(models.Model):
 
     title = models.CharField(max_length=200, verbose_name="Название задачи")
     description = models.TextField(blank=True, verbose_name="Описание задачи")
-    categories = models.ManyToManyField(
-        Category,
-        blank=True,
-        verbose_name="Категории задачи",
-        related_name="tasks"
-    )
+
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
@@ -85,15 +88,35 @@ class Task(models.Model):
         verbose_name="Статус задачи"
     )
     deadline = models.DateTimeField(verbose_name="Дедлайн")
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+
+    # Владелец задачи
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='owned_tasks',
+        verbose_name="Владелец",
+        # null=True, blank=True
+    )
 
     # Добавляем поле владельца
     created_by = models.ForeignKey(
         User,
-        on_delete=models.CASCADE,
-        related_name='tasks',
-        verbose_name="Создатель"
+        on_delete=models.SET_NULL,
+        related_name='created_tasks',
+        verbose_name="Создатель",
+        null=True,
+        blank=True
     )
+
+    categories = models.ManyToManyField(
+        Category,
+        blank=True,
+        verbose_name="Категории задачи",
+        related_name="tasks"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
 
     class Meta:
         verbose_name = "Задача"
@@ -103,7 +126,7 @@ class Task(models.Model):
         unique_together = [['title', 'deadline']]
 
     def __str__(self):
-        return f"{self.title} ({self.get_status_display()})"
+        return f"{self.title} ({self.owner.username})"
 
     @property
     def is_overdue(self):
@@ -164,8 +187,19 @@ class SubTask(models.Model):
         default='new',
         verbose_name="Статус подзадачи"
     )
+
+    # Владелец подзадачи
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='owned_subtasks',
+        verbose_name="Владелец",
+        # null=True, blank=True
+    )
+
     deadline = models.DateTimeField(verbose_name="Дедлайн")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
 
     class Meta:
         db_table = 'task_manager_subtask'
@@ -175,7 +209,7 @@ class SubTask(models.Model):
         unique_together = [['title']]
 
     def __str__(self):
-        return f"{self.task.title} -> {self.title} ({self.get_status_display()})"
+        return f"{self.title} ({self.task.title})"
 
     @property
     def is_overdue(self):
